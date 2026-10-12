@@ -1,0 +1,376 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>existing-conversation probe</title>
+<!--
+  Does "skip leads I already have a conversation with" actually look at the
+  CONVERSATION?
+
+      python3 -m http.server 8765     (from the repo root)
+      open http://127.0.0.1:8765/test/existing-conversation.html
+
+  Instagram's Direct is two columns at desktop width: the conversation list on
+  the left, the open thread on the right. The probe classified a text block as a
+  message bubble by which side of the VIEWPORT it hugged — and every row in that
+  left-hand list hugs the left edge of the viewport. So a lead with no history at
+  all came back "existing conversation" and was skipped, every time.
+
+  This page rebuilds that layout to scale (nav rail, list, thread) and runs the
+  real finders.js against it. Column edges are fractions of the live viewport, so
+  the harness holds at any window size.
+-->
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font: 14px/1.4 -apple-system, sans-serif; }
+  #app { display: flex; height: 100vh; }
+  .rail { width: 6%; border-right: 1px solid #dbdbdb; }
+  .list { width: 31%; border-right: 1px solid #dbdbdb; overflow-y: auto; }
+  .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .thead { height: 60px; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; padding: 0 16px; gap: 10px; }
+  .msgs { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .composer { height: 64px; border-top: 1px solid #dbdbdb; display: flex; align-items: center; padding: 0 16px; }
+  .composer div[contenteditable] { flex: 1; border: 1px solid #dbdbdb; border-radius: 22px; padding: 10px 16px; }
+  .row { display: flex; gap: 10px; align-items: center; padding: 8px 12px; height: 72px; }
+  .row img { width: 56px; height: 56px; border-radius: 50%; }
+  .bub { max-width: 62%; padding: 8px 12px; border-radius: 18px; }
+  .them { align-self: flex-start; background: #efefef; }
+  .us { align-self: flex-end; background: #3797f0; color: #fff; }
+  .intro { align-self: center; text-align: center; color: #737373; max-width: 70%; }
+  /* pointer-events: none for the same reason the hands overlay has it — the
+     probe hit-tests what it measures, and a panel that swallows those hits
+     would make the harness lie. */
+  #out { position: fixed; right: 10px; bottom: 10px; background: #111; color: #0f0; padding: 12px 16px;
+         font: 11px/1.55 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 99;
+         max-height: 92vh; overflow: auto; pointer-events: none; }
+  /* Instagram's Notes strip: a horizontally scrolling row at the top of the
+     conversation list. Clipped by the column, but its off-screen items keep
+     reporting rects — and those land inside the THREAD's column. */
+  .notes { display: flex; gap: 8px; overflow-x: hidden; padding: 8px; }
+  .note { flex: 0 0 96px; }
+  .note .bubble { background: #fff; border: 1px solid #dbdbdb; border-radius: 14px; padding: 6px 8px; font-size: 11px; }
+</style>
+
+<div id="app"></div>
+<pre id="out">running…</pre>
+
+<script>
+  globalThis.chrome = {
+    runtime: { getURL: (p) => "/" + p, sendMessage: () => Promise.resolve({}),
+               onMessage: { addListener: () => {} } },
+  };
+  const AVATAR = "data:image/gif;base64,R0lGODlhAQABAIAAAMLCwgAAACH5BAAAAAAALAAAAAABAAEAAAICRAEAOw==";
+</script>
+
+<script src="/src/content/dom.js"></script>
+<script src="/src/content/finders.js"></script>
+
+<script>
+(async () => {
+  const S = globalThis.__igs;
+  const lines = [];
+  const check = (name, pass, extra = "") => lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+
+  // ── the page Instagram actually draws ──────────────────────────────────────
+  const CONVERSATIONS = [
+    ["annapetrova", "Anna Petrova", "Sent 2h ago"],
+    ["dmitry.codes", "Dmitry", "You: hey! loved your last post"],
+    ["olga_makes", "Olga Makes", "Seen · 4d"],
+    ["kirill.wav", "kirill", "sounds good, let's talk friday"],
+    ["vera.studio", "Vera", "You sent an attachment"],
+    ["maxim_ru", "Maxim", "ok"],
+    ["lena.draws", "Lena", "You: following up on this"],
+    ["ghosted.acct", "ghosted", "You: last one from me"],
+  ];
+
+  function build({ bubbles = [], intro = true, sidebar = true, filler = 0 }) {
+    const app = document.getElementById("app");
+    app.innerHTML = "";
+
+    const rail = document.createElement("div");
+    rail.className = "rail";
+    app.append(rail);
+
+    const list = document.createElement("div");
+    list.className = "list";
+    if (sidebar) {
+      // The Notes strip, first thing in the list. Only the first two fit; the
+      // rest are clipped away to the right, at coordinates that fall inside the
+      // thread's column.
+      const notes = document.createElement("div");
+      notes.className = "notes";
+      for (const [h, , preview] of CONVERSATIONS) {
+        const note = document.createElement("div");
+        note.className = "note";
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = preview;
+        const who = document.createElement("div");
+        who.textContent = h;
+        note.append(bubble, who);
+        notes.append(note);
+      }
+      list.append(notes);
+      for (const [h, name, preview] of CONVERSATIONS) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.setAttribute("role", "button");
+        row.tabIndex = 0;
+        const img = document.createElement("img");
+        img.src = AVATAR;
+        const text = document.createElement("div");
+        const n = document.createElement("span");
+        n.textContent = name;
+        const p = document.createElement("span");
+        p.textContent = preview;
+        const u = document.createElement("span");
+        u.textContent = h;
+        text.append(n, document.createElement("br"), p, u);
+        row.append(img, text);
+        list.append(row);
+      }
+    }
+    app.append(list);
+
+    const pane = document.createElement("div");
+    pane.className = "pane";
+    const head = document.createElement("div");
+    head.className = "thead";
+    const avatar = document.createElement("img");
+    avatar.src = AVATAR;
+    avatar.width = 32; avatar.height = 32;
+    const link = document.createElement("a");
+    link.href = "/olga_makes/";
+    link.textContent = "olga_makes";
+    head.append(avatar, link);
+
+    const msgs = document.createElement("div");
+    msgs.className = "msgs";
+    if (intro) {
+      const card = document.createElement("div");
+      card.className = "intro";
+      const a = document.createElement("div");
+      a.textContent = "olga_makes";
+      const b = document.createElement("div");
+      b.textContent = "Olga Makes · 12.4k followers";
+      const c = document.createElement("div");
+      c.textContent = "You're on Instagram since 2019";
+      card.append(a, b, c);
+      msgs.append(card);
+    }
+    // Filler pushes the real bubbles below the fold, the way a long thread does.
+    for (let i = 0; i < filler; i++) {
+      const f = document.createElement("div");
+      f.className = "bub them";
+      f.textContent = `older message ${i + 1}`;
+      msgs.append(f);
+    }
+    for (const [side, text] of bubbles) {
+      const b = document.createElement("div");
+      b.className = `bub ${side}`;
+      const inner = document.createElement("span");
+      inner.textContent = text;
+      b.append(inner);
+      msgs.append(b);
+    }
+
+    const composer = document.createElement("div");
+    composer.className = "composer";
+    const box = document.createElement("div");
+    box.setAttribute("contenteditable", "true");
+    box.setAttribute("aria-label", "Message");
+    composer.append(box);
+
+    pane.append(head, msgs, composer);
+    app.append(pane);
+    // Every real open thread starts scrolled to the newest message… except when
+    // it doesn't, which is the `filler` case below.
+    return { msgs };
+  }
+
+  const probe = async () => await S.probeExistingMessages();
+
+  // ── 1. the bug: a lead with NO history, list on the left ───────────────────
+  build({ bubbles: [], intro: true, sidebar: true });
+  let r = await probe();
+  check("an empty thread is not an existing conversation", r.any === false, JSON.stringify(r));
+  check("  and the verdict is trusted", r.confident === true, JSON.stringify(r));
+  // The live misread: the Notes strip is clipped by the conversation list, but
+  // its off-screen items report rects inside the thread's column, each one a
+  // short line of text in a white pill. Nothing painted there — so nothing counts.
+  {
+    const notes = [...document.querySelectorAll(".note")];
+    const band = document.querySelector('.composer div[contenteditable]').getBoundingClientRect();
+    const offscreen = notes.filter((n) => {
+      const b = n.getBoundingClientRect();
+      return (b.left + b.right) / 2 > band.left - 48;
+    });
+    check("  the harness really does put clipped notes inside the thread's column",
+      offscreen.length > 0, `${offscreen.length} of ${notes.length}`);
+  }
+
+  // ── 2. …and it still has to SEE a real conversation ────────────────────────
+  build({ bubbles: [["them", "hey! saw your post"], ["us", "thanks — what are you working on?"]], sidebar: true });
+  r = await probe();
+  check("a thread with messages is an existing conversation", r.any === true, JSON.stringify(r));
+  check("  and their message is seen as incoming", r.incoming === true, JSON.stringify(r));
+
+  // ── 3. only our own opener: existing, but they never answered ──────────────
+  build({ bubbles: [["us", "hey! loved the last thing you put out"]], sidebar: true });
+  r = await probe();
+  check("our own opener alone counts as existing", r.any === true, JSON.stringify(r));
+  check("  and is NOT read as a reply", r.incoming === false, JSON.stringify(r));
+
+  // ── 4. no sidebar at all (narrow window) — the old code's happy path ───────
+  build({ bubbles: [], intro: true, sidebar: false });
+  r = await probe();
+  check("an empty thread with no list beside it is still empty", r.any === false, JSON.stringify(r));
+
+  // ── 5. the lone message below the fold ─────────────────────────────────────
+  {
+    const { msgs } = build({ bubbles: [["them", "sure, send it over"]], filler: 40, sidebar: true });
+    msgs.scrollTop = 0;                      // parked at the top, newest off screen
+    r = await probe();
+    check("a thread scrolled away from its newest message is still seen", r.any === true, JSON.stringify(r));
+  }
+
+  // ── 6. the empty thread Instagram ACTUALLY draws, full width ───────────────
+  // Reported live as `in=16 out=0 seen=16` on a lead with no conversation: a
+  // single-column thread, a header, and an intro card whose blocks sit a little
+  // off the column's centre. Nothing here hugs an edge — every block is either
+  // centred or part of the header — so the honest answer is "empty".
+  {
+    const app = document.getElementById("app");
+    app.innerHTML = "";
+    const pane = document.createElement("div");
+    pane.className = "pane";
+
+    const head = document.createElement("div");
+    head.className = "thead";
+    head.style.height = "74px";
+    const hAvatar = document.createElement("img");
+    hAvatar.src = AVATAR; hAvatar.width = 44; hAvatar.height = 44;
+    const hName = document.createElement("div");
+    const hn = document.createElement("span");
+    hn.textContent = "i_am_tonebeatz";
+    const hs = document.createElement("span");
+    hs.textContent = "Active 2h ago";
+    hName.append(hn, document.createElement("br"), hs);
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    const call = document.createElement("div");
+    call.setAttribute("role", "button");
+    call.textContent = "Call";
+    const info = document.createElement("div");
+    info.setAttribute("role", "button");
+    info.textContent = "Conversation information";
+    head.append(hAvatar, hName, spacer, call, info);
+
+    // overflow-y: scroll on the message list is what puts a scrollbar on the
+    // right and shifts every centred block a few pixels left.
+    const msgs = document.createElement("div");
+    msgs.className = "msgs";
+    msgs.style.overflowY = "scroll";
+    msgs.style.alignItems = "center";
+    const card = document.createElement("div");
+    card.className = "intro";
+    const cAvatar = document.createElement("img");
+    cAvatar.src = AVATAR; cAvatar.width = 96; cAvatar.height = 96;
+    for (const t of ["i_am_tonebeatz", "tonebeatz insta", "Instagram · 4,182 followers",
+                     "You're both on Instagram"]) {
+      const line = document.createElement("div");
+      line.textContent = t;
+      card.append(line);
+    }
+    const view = document.createElement("div");
+    view.setAttribute("role", "button");
+    view.textContent = "View profile";
+    view.style.cssText = "background:#efefef;border-radius:8px;padding:7px 16px;display:inline-block;margin-top:8px";
+    card.append(cAvatar, view);
+    msgs.append(card);
+
+    const composer = document.createElement("div");
+    composer.className = "composer";
+    const box = document.createElement("div");
+    box.setAttribute("contenteditable", "true");
+    box.setAttribute("aria-label", "Message");
+    composer.append(box);
+
+    pane.append(head, msgs, composer);
+    app.append(pane);
+
+    r = await probe();
+    check("Instagram's real empty-thread card is not a conversation", r.any === false, JSON.stringify(r));
+    check("  and the verdict is still trusted", r.confident === true, JSON.stringify(r));
+
+    // …including when the card sits against an edge of the column instead of
+    // dead centre — a narrow thread, a card laid out left. Live this read
+    // `in=1 pills=1 seen=2` on a thread with nothing in it and the lead was
+    // skipped as already written to. Nothing INSIDE the card is a message.
+    msgs.style.alignItems = "flex-start";
+    card.style.marginLeft = "0";
+    card.style.maxWidth = "260px";
+    r = await probe();
+    check("  nor when that card hugs an edge of the column", r.any === false, JSON.stringify(r));
+    check("  and the card is counted as a card, not as messages",
+      /card=[1-9]/.test(r.debug), r.debug);
+  }
+
+  // ── 7. the same empty thread, but everything skewed LEFT ───────────────────
+  // The live misread was `in=16` — sixteen INCOMING, so whatever it was counting
+  // sat on the left. Header chips hug the left edge by construction, and an
+  // intro card whose lines are left-aligned inside a centred block sits left of
+  // the column's middle. Neither is a message.
+  {
+    const app = document.getElementById("app");
+    app.innerHTML = "";
+    const pane = document.createElement("div");
+    pane.className = "pane";
+
+    const head = document.createElement("div");
+    head.className = "thead";
+    head.style.height = "74px";
+    const chip = document.createElement("div");
+    chip.style.cssText = "background:#efefef;border-radius:20px;padding:6px 14px";
+    chip.textContent = "i_am_tonebeatz";
+    const sub = document.createElement("div");
+    sub.style.cssText = "background:#f5f5f5;border-radius:8px;padding:4px 10px";
+    sub.textContent = "Active 2h ago";
+    head.append(chip, sub);
+
+    const msgs = document.createElement("div");
+    msgs.className = "msgs";
+    msgs.style.overflowY = "scroll";
+    const card = document.createElement("div");
+    card.style.cssText = "margin:0 auto;text-align:left;max-width:420px";
+    for (const t of ["i_am_tonebeatz", "tonebeatz insta", "Instagram · 4,182 followers",
+                     "You're both on Instagram", "title iv-d is fraud!"]) {
+      const line = document.createElement("div");
+      line.style.cssText = "background:#fafafa;padding:4px 8px;border-radius:6px;margin:2px 0";
+      line.textContent = t;
+      card.append(line);
+    }
+    msgs.append(card);
+
+    const composer = document.createElement("div");
+    composer.className = "composer";
+    const box = document.createElement("div");
+    box.setAttribute("contenteditable", "true");
+    box.setAttribute("aria-label", "Message");
+    composer.append(box);
+
+    pane.append(head, msgs, composer);
+    app.append(pane);
+
+    r = await probe();
+    check("a left-skewed empty thread is still not a conversation", r.any === false, JSON.stringify(r));
+    check("  header chips are never counted as messages", r.incoming === false, JSON.stringify(r));
+  }
+
+  // ── 8. nothing rendered at all → the verdict must not be trusted ───────────
+  document.getElementById("app").innerHTML = "";
+  r = await probe();
+  check("a page that rendered nothing is not a confident verdict", r.confident === false, JSON.stringify(r));
+
+  document.getElementById("out").textContent = lines.join("\n");
+  console.log(lines.every((l) => l.startsWith("PASS")) ? "ALL PASS" : "SOME FAILED");
+})();
+</script>

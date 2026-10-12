@@ -1,0 +1,766 @@
+/* Inter, vendored: an extension page should not reach out to a font CDN, and
+   one variable file covers every weight the UI uses. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("../assets/fonts/inter-latin.woff2") format("woff2");
+}
+
+/* Surfaces are translucent white, not opaque grey with a border on every box.
+   The backdrop photo has to read THROUGH the panels; a solid fill with a hard
+   1px edge turns the page into a stack of cut-outs sitting on a picture. */
+:root {
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-hi: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-hi: rgba(255, 255, 255, 0.16);
+  --bg: #0b0b0c;
+  --text: #ededed;
+  /* 7.6:1 and 5.2:1 over the card. The pair these replace measured 5.3:1 and
+     4.7:1 — above AA by nothing — and the log placeholder sat at 2.2:1. */
+  --muted: #9c9c9c;
+  --dim: #8a8a8a;
+  --accent: #ffffff;
+  --danger: #ff5a5a;
+  --ok: #3bb273;
+  --warn: #f0b849;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --pill: 100px;
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+/* The `hidden` attribute must win over class rules that set display (flex/grid),
+   otherwise toggling `.hidden` on .field / .varsrow leaves them visible. */
+[hidden] { display: none !important; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  padding-bottom: 230px; /* room for the sticky runbar at its tallest */
+}
+
+/* Form controls do not inherit the family, and Inter has to reach them too. */
+button, input, select, textarea { font: inherit; }
+
+/* Tab used to be invisible: outline was killed on the inputs and nothing else
+   had a focus style at all. */
+:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The photo is a backdrop, not a picture: fixed so it doesn't scroll with the
+   cards, and dimmed hard. At full brightness the sand is lighter than the text
+   on top of it, which is how a background becomes a readability problem. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: url("../assets/backdrop.jpg") center / cover no-repeat;
+  filter: brightness(0.36) saturate(0.7);
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(11, 11, 12, 0.42) 0%, rgba(11, 11, 12, 0.74) 100%);
+}
+
+/* the wordmark, standing on its own where the top bar used to be — and the
+   page's only h1, so the document has a top-level heading at all */
+.logo-head { margin: 0; }
+.logo {
+  display: block;
+  width: auto;
+  height: 52px;                /* the source is cropped to the mark, so this IS the mark */
+  margin: 30px auto 8px;
+  object-fit: contain;
+  filter: invert(1);           /* the source is black on transparent */
+  opacity: 0.92;
+}
+/* The status pill is gone, so the logo carries the signal: a slow breath while
+   a run is going, nothing at all when idle. */
+.logo.is-running { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { opacity: 0.92; } 50% { opacity: 0.42; } }
+@media (prefers-reduced-motion: reduce) { .logo.is-running { animation: none; opacity: 0.6; } }
+
+/* ── campaigns ──────────────────────────────────────────────────────────────
+   Which campaign everything below belongs to, so it sits above everything below
+   it. The name is an input rather than a heading with a Rename button beside it:
+   renaming is the only thing there is to do to a name, and one control beats
+   two — it looks like a title until you put the pointer on it. */
+.campaigns { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.campaign-arrow {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--pill);
+  background: transparent;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.campaign-arrow:hover:not(:disabled) { background: var(--surface-hi); color: var(--text); }
+.campaign-arrow:active:not(:disabled) { transform: scale(0.92); }
+.campaign-arrow:disabled { opacity: 0.28; cursor: default; }
+
+.campaign-name {
+  /* One width for every name, rather than a box that hugs its text: the arrows
+     are what you come back to, and they must not move under the pointer when a
+     longer campaign name arrives. */
+  width: 240px;
+  max-width: 46vw;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  transition: background 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+.campaign-name:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--line); }
+.campaign-name:focus { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); }
+.campaign-name:disabled { color: var(--muted); }
+
+.campaign-tools { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 2px; }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--surface);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--text);
+}
+
+/* layout */
+main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 18px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── sections ──────────────────────────────────────────────────────────────
+   Each card is a <details>. Five stacked sections is more page than fits, and
+   the ones you are not working in should be able to get out of the way; which
+   are folded is remembered by src/ui/sections.js. */
+@keyframes cardIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.card {
+  background: rgba(8, 8, 8, 0.62);
+  backdrop-filter: blur(26px) saturate(140%);
+  border-radius: var(--radius-lg);
+  padding: 14px 20px 18px;
+  box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.95),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  animation: cardIn 0.3s var(--ease-out) both;
+}
+.card:not([open]) { padding-bottom: 14px; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  min-height: 40px;   /* the whole strip is the fold control, so give it a real target */
+  padding: 2px 0;
+  margin-bottom: 8px;
+}
+.card-head::-webkit-details-marker { display: none; }
+/* The fold marker: ▶ when closed, ▼ when open. */
+.card-head::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--dim);
+  border-bottom: 1.5px solid var(--dim);
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 0.22s var(--ease-out), border-color 0.15s;
+}
+.card[open] > .card-head::before { transform: translateY(-3px) rotate(45deg); }
+.card-head:hover::before { border-color: var(--text); }
+.card-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+/* Whatever else the head carries — a count, a timestamp — sits at the far end. */
+.card-head > :not(h2) { margin-left: auto; }
+.card:not([open]) .card-head { margin-bottom: 0; }
+
+.hint { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+.hint--tight { margin: 8px 0 0; }
+
+/* inputs */
+textarea, input[type="number"], input[type="text"], input[type="search"], select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--line-hi);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+textarea:focus, input:focus, select:focus {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+}
+textarea::placeholder { color: var(--dim); }
+textarea:disabled, select:disabled, input:disabled { opacity: 0.5; cursor: default; }
+/* Typed as `input[type=…].num` on purpose: the bare `.num` loses the specificity
+   fight with the `width: 100%` above it, and every number box in the app was
+   stretching the full column because of it. */
+input[type="number"].num { width: 96px; }
+
+/* ── fields ────────────────────────────────────────────────────────────────
+   One label style for everything the user fills in — a field's label and a
+   group's label are the same thing at different scales, and setting one in
+   caps and the other in sentence case is what made this read as two forms
+   spliced together. Caps is reserved for table headers and dividers, which
+   never sit next to a field label. */
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.field > span, .group-label { color: var(--muted); font-size: 12px; }
+.group-label { display: block; margin-bottom: 8px; }
+.group-label b { color: var(--text); font-weight: 600; }
+/* The whole row is the label, so it is also the click target — 18px of it was
+   the checkbox and nothing else. Desktop and a mouse, so this is 26px rather
+   than the 44 a thumb would need. */
+.field--check { flex-direction: row; align-items: flex-start; gap: 9px; padding: 3px 0; }
+/* Inside a group the checkboxes are one list and sit close; on its own a
+   checkbox is a block of the form and gets the same air as a field. */
+.field-group > .field--check { margin-bottom: 8px; }
+.field--check input { width: auto; margin-top: 2px; accent-color: #fff; }
+.field--check span { color: var(--text); }
+.field--check.is-disabled { opacity: 0.5; }
+.note { color: var(--dim); font-style: normal; font-size: 11.5px; }
+.field-group { margin-bottom: 24px; }
+/* stacked pairs — followers over posts — keep the same gap as everything else */
+.field-group .row + .row { margin-top: 8px; }
+.dash { color: var(--dim); }
+
+/* rows / misc */
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.row--between { justify-content: space-between; }
+.muted { color: var(--muted); font-size: 12px; }
+
+/* "or" divider */
+.or-line {
+  display: flex; align-items: center; gap: 10px;
+  margin: 20px 0 16px;
+  color: var(--dim); font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* range slider */
+.slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  padding: 0; border: 0; outline: none;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; cursor: pointer;
+  border: 3px solid #0a0a0a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+  transition: transform 0.15s var(--ease-spring);
+}
+.slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+/* banners */
+.banner {
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 12px;
+  margin: 4px 0 10px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.banner--error {
+  color: var(--danger);
+  background: rgba(255, 90, 90, 0.09);
+}
+
+/* segmented control (hand skins) */
+.segmented { display: flex; gap: 3px; padding: 3px; background: var(--surface); border-radius: var(--pill); }
+.segmented label { flex: 1; position: relative; cursor: pointer; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span {
+  display: block;
+  text-align: center;
+  padding: 7px 6px;
+  border-radius: var(--pill);
+  color: var(--muted);
+  font-size: 12.5px;
+  transition: background 0.16s, color 0.16s;
+}
+.segmented label:hover span { color: var(--text); }
+.segmented input:checked + span {
+  color: #000;
+  background: var(--accent);
+  font-weight: 600;
+}
+.segmented input:focus-visible + span { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
+
+/* variable chips */
+.varsrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 4px 11px;
+  border-radius: var(--pill);
+  border: 0;
+  color: var(--muted);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background 0.16s, color 0.14s, transform 0.18s var(--ease-spring);
+}
+.chip:hover { background: var(--surface-hi); color: var(--text); }
+.chip:active { transform: scale(0.95); }
+
+/* the loaded files — one card each, stacked in the order they were added */
+.table-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 16px; }
+.table-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.table-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+/* Inside a card every part is one row of a stack, and the stack owns the gaps. */
+.table-card .field, .table-card .banner { margin: 0; }
+
+/* table preview — folded away by default; it is a one-time import check */
+.preview-wrap { border: 1px solid var(--line); border-radius: var(--radius); }
+.preview-wrap > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+  list-style: none;
+  transition: color 0.14s;
+}
+.preview-wrap > summary::-webkit-details-marker { display: none; }
+/* the same fold marker as the cards, one size down */
+.preview-wrap > summary::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--dim);
+  border-bottom: 1.5px solid var(--dim);
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 0.22s var(--ease-out);
+}
+.preview-wrap[open] > summary::before { transform: translateY(-2px) rotate(45deg); }
+.preview-wrap > summary:hover { color: var(--text); }
+.preview-wrap[open] > summary { border-bottom: 1px solid var(--line); }
+.preview-wrap[open] { max-height: 280px; overflow: auto; }
+.preview { border-collapse: collapse; width: 100%; font-size: 12px; }
+/* Rows are separated, columns are not: a full grid of rules turned the import
+   check into graph paper. */
+.preview th, .preview td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Opaque on purpose: it is sticky, and rows scroll under it. */
+.preview th {
+  position: sticky; top: 0;
+  background: #0e0e10;
+  color: var(--dim);
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.preview th.is-match { color: #000; background: var(--accent); }
+.preview tbody tr:last-child td { border-bottom: none; }
+
+/* message list */
+.list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.msg { display: flex; gap: 6px; align-items: flex-start; }
+.msg textarea { flex: 1; }
+
+.preview-line { margin-top: 16px; display: flex; gap: 8px; align-items: baseline; }
+.preview-text { color: var(--text); }
+
+/* ── the queue, inside the Leads card ──────────────────────────────────────── */
+.queue { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 20px; }
+.queue-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.search { flex: 0 0 220px; }
+
+/* the counts ARE the filter — one thing to read, one thing to click */
+.chips--filter { flex: 1; }
+.chip--filter { font-family: inherit; text-transform: lowercase; }
+.chip--filter.is-on { color: #000; background: var(--accent); font-weight: 600; }
+.chip--filter.is-on:hover { background: #e8e8e8; color: #000; }
+
+.queue-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px var(--line-hi);
+}
+.queue-bulk .muted { margin-right: auto; }
+.queue-foot { margin-top: 12px; }
+.queue-foot .row { gap: 6px; }
+
+.queue-head,
+.lead {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 82px 66px 64px minmax(0, 1.4fr) 92px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.queue-head {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+.lead { border-radius: 8px; transition: background 0.14s; }
+.lead:hover { background: rgba(255, 255, 255, 0.03); }
+.list--leads { max-height: 460px; overflow-y: auto; gap: 0; margin: 0; }
+.cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell--check { display: flex; align-items: center; }
+.cell--check input { accent-color: #fff; }
+.cell--when { font-variant-numeric: tabular-nums; font-size: 11.5px; }
+.cell--note { font-size: 11.5px; }
+.cell--act { display: flex; gap: 2px; justify-content: flex-end; }
+.lead--removed { opacity: 0.5; }
+.lead--removed .cell--handle { text-decoration: line-through; }
+/* justify-self, because the badge is a cell of the row grid: filled now rather
+   than outlined, it would otherwise stretch the whole 82px column. */
+.badge {
+  justify-self: start;
+  font-size: 10.5px;
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  color: var(--muted);
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+.badge--pending { color: var(--muted); }
+.badge--sending { color: var(--warn); background: rgba(240, 184, 73, 0.12); }
+.badge--sent { color: var(--ok); background: rgba(59, 178, 115, 0.12); }
+.badge--failed { color: var(--danger); background: rgba(255, 90, 90, 0.12); }
+.badge--skipped { color: var(--dim); }
+
+/* ── follow-ups ─────────────────────────────────────────────────────────────
+   In the queue: one narrow column per lead, the count that has gone out plus
+   what happens next. Colour is reserved for the two states you can act on —
+   owed now, and given up on. */
+.cell--fu { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fu--due { color: var(--warn); font-weight: 600; }
+.fu--replied { color: var(--ok); }
+.fu--stopped { color: var(--danger); }
+
+/* Above the queue: the same counts for the whole list, because no per-row cell
+   answers "will anything happen when I press Start" at six hundred rows. */
+.fu-monitor {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.fu-monitor-head { color: var(--text); font-weight: 600; margin-right: 2px; }
+.fu-count { font-variant-numeric: tabular-nums; }
+
+/* In the editor: steps are a sequence, so they are numbered. */
+.msg--step { align-items: flex-start; }
+.step-num {
+  flex: 0 0 24px;
+  height: 24px;
+  margin-top: 8px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fu-limits .row { gap: 8px; }
+
+/* buttons */
+.btn {
+  background: var(--surface);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--pill);
+  padding: 8px 15px;
+  cursor: pointer;
+  transition: background 0.16s, color 0.14s, transform 0.18s var(--ease-spring), box-shadow 0.18s;
+}
+.btn:hover { background: var(--surface-hi); transform: translateY(-1px); }
+.btn:active { transform: scale(0.96); }
+/* is-disabled is for <label class="btn">, which has no disabled attribute of its own. */
+.btn:disabled, .btn.is-disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+.btn--ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.btn--ghost:hover { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-hi); }
+/* A full-width button closes a block of the form, so it carries the same
+   bottom margin a field does — it used to butt straight into the next label. */
+.btn--block { width: 100%; margin-bottom: 16px; }
+.btn--tiny { padding: 6px 12px; font-size: 11.5px; }
+.btn--danger { color: var(--danger); background: transparent; }
+.btn--danger:hover { background: rgba(255, 90, 90, 0.14); }
+/* Not widened with a ::after hit area the way the rest of the language does it:
+   three of these sit 2px apart in a lead row, and overlapping targets on skip
+   and remove is worse than a small button. */
+.btn--icon { padding: 7px 10px; line-height: 1; }
+.btn--primary {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+  min-width: 108px;
+  padding: 11px 24px;
+}
+.btn--primary:hover {
+  background: #e8e8e8;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(255, 255, 255, 0.13);
+}
+.btn--primary:active { transform: scale(0.96); box-shadow: none; }
+.btn--primary.is-stop { background: rgba(255, 90, 90, 0.16); color: #ffb3b3; }
+.btn--primary.is-stop:hover { background: rgba(255, 90, 90, 0.3); color: #fff; box-shadow: none; }
+
+/* runbar */
+.runbar {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 5;
+  padding: 12px 20px 14px;
+  background: linear-gradient(to top, rgba(6, 6, 7, 0.96) 0%, rgba(6, 6, 7, 0.82) 100%);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+/* The button is the bar's centre of gravity and everything else stacks under it
+   on the same axis. A status line hanging off one side of a centred button is
+   what made this look crooked once the button moved. */
+.runbar-top {
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.progress { text-align: center; min-height: 15px; }
+/* The question Start asks when the last run stopped part-way through its cap.
+   It wraps instead of widening: the runbar is fixed and has nowhere to grow. */
+.resume-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.resume-ask input[type="number"].num { width: 64px; }
+.log {
+  max-width: 820px;
+  margin: 10px auto 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  max-height: 88px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.log .err { color: var(--danger); }
+.log:empty::before { content: "log will appear here"; color: var(--dim); }
+
+/* ── dashboard ─────────────────────────────────────────────────────────────── */
+.dash-bar { margin-bottom: 16px; }
+.dash-block { margin-top: 24px; }
+.dash-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.dash-head h3 { font-size: 13.5px; font-weight: 600; margin: 0; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.stat {
+  flex: 1 1 110px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat-label {
+  font-size: 10px; font-weight: 600; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-top: 5px;
+}
+.stat-sub { font-size: 10.5px; margin-top: 3px; }
+
+/* a rate is never shown without the sample under it */
+.rates { display: flex; flex-direction: column; gap: 7px; }
+.rate { display: grid; grid-template-columns: minmax(0, 1fr) 120px 92px; align-items: center; gap: 10px; }
+.rate-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.rate-bar { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.rate-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.rate-num { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.rate--thin .rate-bar > span { opacity: 0.4; }
+.rate--thin .rate-name { color: var(--muted); }
+
+/* the squares */
+.grid { overflow-x: auto; padding-bottom: 4px; }
+.grid-months { display: grid; grid-auto-flow: column; grid-auto-columns: 12px; gap: 2px; margin-left: 30px; height: 13px; }
+.grid-months span { font-size: 9.5px; color: var(--dim); white-space: nowrap; }
+.grid-body { display: flex; gap: 4px; }
+.grid-days { display: grid; grid-template-rows: repeat(7, 12px); gap: 2px; width: 26px; }
+.grid-days span { font-size: 9.5px; color: var(--dim); line-height: 12px; }
+.grid-cols { display: grid; grid-auto-flow: column; grid-auto-columns: 12px; gap: 2px; }
+.grid-col { display: grid; grid-template-rows: repeat(7, 12px); gap: 2px; }
+.sq { width: 10px; height: 10px; border-radius: 3px; background: rgba(255, 255, 255, 0.06); }
+.sq--1 { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.sq--2 { background: color-mix(in srgb, var(--accent) 52%, transparent); }
+.sq--3 { background: color-mix(in srgb, var(--accent) 76%, transparent); }
+.sq--4 { background: var(--accent); }
+.sq--future { opacity: 0.25; }
+.grid-legend { display: flex; align-items: center; gap: 3px; margin-top: 8px; font-size: 10.5px; margin-left: 30px; }
+.grid-legend span:first-child { margin-right: 3px; }
+.grid-legend span:last-child { margin-left: 3px; }
+
+/* hour-of-day: height is volume, fill is reply rate */
+.hours { display: flex; align-items: flex-end; gap: 3px; height: 74px; }
+.hour { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px; }
+.hour-bar {
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 3px 3px 0 0;
+  background: rgba(255, 255, 255, 0.06);
+}
+.hour-bar > span { display: block; width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; }
+.hour-label { font-size: 9.5px; color: var(--dim); height: 11px; }
+.hour--best .hour-bar { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
+
+/* who is sending — the card above the numbers */
+.who {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.who--empty { color: var(--muted); font-size: 12px; display: block; }
+.who-avatar, .who-initials {
+  width: 44px; height: 44px; flex: 0 0 44px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  object-fit: cover;
+}
+.who-initials {
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.06); color: var(--muted);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.5px;
+}
+.who-text { min-width: 0; flex: 1; }
+.who-name { font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+.who-handle { font-size: 12px; }
+.who-bio { font-size: 12px; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.who-counts { font-size: 11.5px; white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* scrollbars: present, but not part of the composition */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 3px; }
+
+/* ── Importar desde Artist Outreach (ui/platform.js) ─────────────────────── */
+.ao-dialog {
+  width: min(460px, calc(100vw - 32px));
+  padding: 0; border: 0; border-radius: var(--radius-lg);
+  background: #141416; color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-hi), 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+.ao-dialog::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px); }
+.ao-form { padding: 20px 22px; }
+.ao-form h2 { font-size: 15px; margin: 0; }
+.ao-form .field select {
+  height: 36px; padding: 0 10px; border-radius: var(--radius);
+  background: var(--surface); color: var(--text); border: 1px solid var(--line-hi); font: inherit;
+}
+.ao-form .banner { margin-top: 12px; }
+
+/* ── Inside the Artist Outreach web app (platform/embed.js) ─────────────────
+   The app shows the brand and the navigation; the page drops its own logo. */
+.ao-embedded .logo-head { display: none; }
+.ao-embedded .campaigns { margin-top: 18px; }

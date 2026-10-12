@@ -1,0 +1,602 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>content layer harness</title>
+<!--
+  Loads the real content layer, in the order manifest.json declares it, against a
+  stub of the little bit of `chrome` it touches — then asks it the same questions
+  the worker asks and holds every answer to a clock.
+
+      python3 -m http.server 8765     (from the repo root)
+      open http://127.0.0.1:8765/test/content-layer.html
+
+  It exists because of a run that died silently right after "work window
+  viewport": a handler awaited a promise that neither resolved nor rejected, so
+  the message was never answered and the worker waited on it for ever. Every
+  handler here is therefore checked for the one thing that cannot fail on its
+  own — that it answers at all.
+-->
+
+<style>
+  body { margin: 0; font: 14px/1.4 -apple-system, sans-serif; background: #fff; }
+  .nav { height: 60px; border-bottom: 1px solid #dbdbdb; display: flex; align-items: center; padding: 0 24px; }
+  #out { position: fixed; left: 12px; bottom: 12px; background: #111; color: #0f0; padding: 12px 16px;
+         font: 12px/1.6 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 999; }
+</style>
+<div class="nav"><b>Instagram</b></div>
+<pre id="out">running…</pre>
+
+<script>
+  // The page has had NO user gesture, which is exactly the state a freshly
+  // opened work window is in.
+  globalThis.__handlers = [];
+  globalThis.__toWorker = [];
+  globalThis.chrome = {
+    runtime: {
+      getURL: (p) => "/" + p,
+      sendMessage: (m) => { globalThis.__toWorker.push(m); return Promise.resolve({ ok: true }); },
+      onMessage: { addListener: (fn) => globalThis.__handlers.push(fn) },
+    },
+  };
+</script>
+
+<!-- the content layer, in the order manifest.json declares -->
+<script src="/src/content/dom.js"></script>
+<script src="/src/content/hands.js"></script>
+<script src="/src/content/input.js"></script>
+<script src="/src/content/finders.js"></script>
+<script src="/src/content/direct.js"></script>
+<script src="/src/content/post.js"></script>
+<script src="/src/content/story.js"></script>
+<script src="/src/content/main.js"></script>
+
+<script>
+(async () => {
+  const lines = [];
+  const check = (name, pass, extra = "") => lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+  const S = globalThis.__igs;
+
+  // The whole layer has to come up: one broken file and the worker's PING is
+  // never answered, which is indistinguishable from a page that never loaded.
+  check("the shared namespace exists", !!S);
+  for (const name of ["sleep", "waitFor", "aimIsClear", "hands", "input", "realClick",
+                      "goToDirect", "openLeadThread", "runJustDM", "runReplyToPost",
+                      "runReplyToStory", "scanInbox", "readOwnProfile"]) {
+    check(`  ${name} is published`, typeof S[name] !== "undefined");
+  }
+  check("exactly one message listener is registered", globalThis.__handlers.length === 1,
+    `${globalThis.__handlers.length}`);
+  // The worker cannot see a reload. This is how it hears about one — and how the
+  // hands get back onto a page that was rebuilt underneath them.
+  check("the layer says hello when it loads",
+    globalThis.__toWorker.some((m) => m.type === "CONTENT_READY"),
+    JSON.stringify(globalThis.__toWorker.map((m) => m.type)));
+
+  // Ask the layer the way the worker does, and hold it to a clock.
+  const ask = (msg, ms = 3000) => new Promise((resolve) => {
+    let answered = false;
+    const timer = setTimeout(() => { if (!answered) resolve({ __timedOut: ms }); }, ms);
+    const isAsync = globalThis.__handlers[0](msg, {}, (r) => {
+      answered = true; clearTimeout(timer); resolve(r);
+    });
+    if (isAsync !== true && !answered) { clearTimeout(timer); resolve({ __noAnswer: true }); }
+  });
+
+  const ping = await ask({ type: "PING" });
+  check("PING is answered", ping.ok === true && ping.w > 0, JSON.stringify(ping));
+
+  const hands = await ask({ type: "HANDS", on: true });
+  check("HANDS is answered", hands.ok === true, JSON.stringify(hands));
+
+  // PULL loads a picture the worker wants the bytes of. It is answered either
+  // way, or the worker waits out its whole timeout for the avatar of a run that
+  // is otherwise fine.
+  const pulled = await ask({ type: "PULL", url: "/assets/logo.png" });
+  check("PULL is answered", pulled.ok === true, JSON.stringify(pulled));
+  const missing = await ask({ type: "PULL", url: "http://127.0.0.1:1/nothing.jpg" });
+  check("  and a picture that cannot be loaded is answered too",
+    missing.ok === false && !!missing.error, JSON.stringify(missing));
+  // The audience filter's read. The fixture is the stats row copied off a live
+  // profile: the count and its word share an element, the anchors are href="#"
+  // so there is nothing structural to key on, and only the SHORTENED number
+  // carries the exact value in `title`.
+  {
+    const stats = document.createElement("div");
+    stats.innerHTML = '<span><span>4,864</span> posts</span>'
+      + '<a href="#"><span><span title="104,256,058">104M</span></span> followers</a>'
+      + '<a href="#"><span>92</span> following</a>';
+    document.body.append(stats);
+
+    const counts = S.readProfileCounts();
+    check("the post count is read as written", counts.posts === 4864, JSON.stringify(counts));
+    check("  a shortened count comes from its title, not its text",
+      counts.followers === 104256058, JSON.stringify(counts));
+    check("  and `following` is not mistaken for either",
+      counts.followers !== 92 && counts.posts !== 92);
+
+    stats.remove();
+    const gone = S.readProfileCounts();
+    check("a profile with no stats gives up rather than guessing",
+      gone.followers === undefined && gone.posts === undefined, JSON.stringify(gone));
+
+    // A profile opened from the conversation lands on a page that is still
+    // filling its header in, so one read the instant the URL changes catches
+    // nothing and the lead fails for the page's slowness. The read waits.
+    const late = document.createElement("div");
+    setTimeout(() => {
+      late.innerHTML = '<span><span>12</span> posts</span>'
+        + '<a href="#"><span>3,400</span> followers</a>';
+      document.body.append(late);
+    }, 400);
+    const waited = await S.waitForProfileCounts(4000);
+    check("numbers that arrive late are waited for",
+      waited.posts === 12 && waited.followers === 3400, JSON.stringify(waited));
+
+    late.remove();
+    const never = await S.waitForProfileCounts(300);
+    check("  and a page that never shows them still gives up",
+      never.followers === undefined && never.posts === undefined, JSON.stringify(never));
+  }
+
+  const stage = () => document.documentElement.lastElementChild.shadowRoot?.querySelector(".stage");
+  check("  and the hands are on the page",
+    document.documentElement.lastElementChild.shadowRoot?.querySelector(".hand") != null);
+
+  // A skin is a file plus three numbers, and all three have to reach the CSS —
+  // the artwork's proportions and the seam between the hands come from the
+  // artwork, so a skin that only swaps the image would clip through a thumb.
+  {
+    const before = { art: stage().style.getPropertyValue("--art"), seam: stage().style.getPropertyValue("--seam"),
+                     url: stage().style.getPropertyValue("--art-url") };
+    check("  a default skin is applied without one being sent", !!before.url, JSON.stringify(before));
+    await ask({ type: "HANDS", on: true,
+      skin: { id: "domes", file: "hands-domes.webp", aspect: 848 / 1248, seam: 47, off: 0.28 } });
+    const after = { art: stage().style.getPropertyValue("--art"), seam: stage().style.getPropertyValue("--seam"),
+                    url: stage().style.getPropertyValue("--art-url") };
+    check("  switching skin changes the artwork", /hands-domes\.webp/.test(after.url), after.url);
+    check("  …its proportions", after.art !== before.art && Math.abs(parseFloat(after.art) - 848 / 1248) < 1e-6, after.art);
+    check("  …and the seam between the hands", after.seam === "47%", after.seam);
+    const clip = getComputedStyle(document.documentElement.lastElementChild.shadowRoot.querySelector(".r")).clipPath;
+    check("  which the clip path actually reads", /47/.test(clip), clip);
+    // A message with no skin must not wipe the one in use — the worker sends
+    // `on: false` at the end of a run and that is not a request to change skins.
+    await ask({ type: "HANDS", on: true });
+    check("  a message without a skin keeps the current one",
+      /hands-domes\.webp/.test(stage().style.getPropertyValue("--art-url")),
+      stage().style.getPropertyValue("--art-url"));
+  }
+
+  // ── two SENDs for one lead must never become two sends ─────────────────────
+  // The failure this guards: a lead received one sentence typed twice, letter by
+  // letter into the same box. Whatever made the worker ask again — a closed port
+  // on Instagram's reload, a retry — the page must answer with the send it is
+  // already running, not start another beside it.
+  {
+    // main.js binds its helpers at load, so a stub on the namespace never
+    // reaches it. Hold the send in flight where it really talks to the worker
+    // instead: the first click never answers, so the send provably has not
+    // finished when the second SEND arrives. No timing, no sleeps.
+    const steps = [];
+    let releaseClick = null;
+    const link = document.createElement("a");
+    link.href = "/direct/inbox/";
+    link.textContent = "Direct";
+    link.style.cssText = "display:block;width:120px;height:40px";
+    document.body.append(link);
+    // Only the FIRST click is held. send()'s finally-clause walks back to Direct
+    // and clicks again; holding that one too would hang the harness, not the code.
+    let held = false;
+    chrome.runtime.sendMessage = (m) => {
+      if (m.type === "STEP") { steps.push(m.text); return Promise.resolve({}); }
+      if (m.type === "INPUT" && m.op === "click" && !held) {
+        return new Promise((r) => { releaseClick = (v) => { held = true; r(v); }; });
+      }
+      return Promise.resolve({ ok: true });
+    };
+
+    // A generous clock: this page will never become Direct, so the send under
+    // test spends its time in the retries that getting to a lead now makes — two
+    // approaches, each waiting on Direct twice — which is the point of them and
+    // nothing to do with what is checked here.
+    const first = ask({ type: "SEND", payload: { username: "lead", message: "hi", settings: {} } }, 150000);
+    await S.waitFor(() => releaseClick, 4000);       // the first send is now stuck mid-click
+    check("the first send is genuinely in flight", !!releaseClick);
+
+    const second = ask({ type: "SEND", payload: { username: "lead", message: "hi", settings: {} } }, 150000);
+
+    releaseClick({ ok: false, error: "harness released the click" });
+    // This page will never be Direct, so the lead fails on the way in — and a
+    // lead that never got as far as a message is worth another go right here,
+    // rather than being left for the end of the run.
+    await S.waitFor(() => steps.some((t) => /starting this lead over/.test(t)) || null, 60000);
+    check("a lead that failed on the way in is started over in the same visit",
+      steps.some((t) => /starting this lead over/.test(t)), steps.join(" | ") || "(no steps)");
+
+    // A DIFFERENT lead means the worker gave up on this one and moved on. It
+    // used to be refused — "busy sending to @lead" — and three of those in a row
+    // stopped the run. Now it waits for the page instead, and takes it over.
+    const other = ask({ type: "SEND", payload: { username: "someone-else", message: "hi", settings: {} } }, 150000);
+    const early = await Promise.race([other, S.sleep(2500).then(() => "still waiting")]);
+    check("a DIFFERENT lead waits for the page instead of being refused",
+      early === "still waiting", JSON.stringify(early));
+
+    const [a, b] = await Promise.all([first, second]);
+    check("  and the send nobody wants is dropped for it",
+      steps.some((t) => /dropping the send to @lead/.test(t)), steps.join(" | ") || "(no steps)");
+
+    // …and the worker can stop a send outright, for the pause between leads.
+    const stopped = await ask({ type: "ABANDON" });
+    check("ABANDON is answered", stopped.ok === true, JSON.stringify(stopped));
+    const c = await other;
+    check("  and the abandoned send stops instead of clicking on",
+      /abandoned/.test(c.error || ""), JSON.stringify(c));
+    check("a repeated SEND joins the one running", steps.some((t) => /already running/.test(t)),
+      steps.join(" | ") || "(no steps)");
+    check("  and both callers get the same answer",
+      !a.__timedOut && JSON.stringify(a) === JSON.stringify(b), JSON.stringify(a));
+    link.remove();
+  }
+
+  // ── Instagram's own error page ─────────────────────────────────────────────
+  {
+    const page = document.createElement("div");
+    page.innerHTML = '<h2>Произошла ошибка</h2><p>Возникла проблема. Не удалось загрузить страницу.</p>'
+      + '<div role="button" style="width:200px;height:40px">Обновить страницу</div>';
+    document.body.append(page);
+    check("Instagram's error page is recognised", S.pageFailedToLoad() === true);
+    page.remove();
+
+    // The words alone are not enough: a lead can write them in a message, and
+    // reloading mid-thread would throw the send away.
+    const msg = document.createElement("div");
+    msg.textContent = "у меня произошла ошибка при оплате, не удалось загрузить";
+    document.body.append(msg);
+    check("  a lead writing those words is not an error page", S.pageFailedToLoad() === false);
+    msg.remove();
+    check("  a clean page is not an error page", S.pageFailedToLoad() === false);
+  }
+
+  // ── and it has to be PRESSED, where the empty conclusion is drawn ───────────
+  // The screen does not arrive with the navigation — it lands a second or two
+  // later — so the single check made on arrival saw a page that was still
+  // loading and waved it through. The run then read the blank page behind the
+  // error as a profile with no story and no posts and dropped to a plain DM.
+  {
+    const broken = document.createElement("div");
+    broken.innerHTML = "<h2>Something went wrong</h2><p>There's an issue and the page could not be loaded.</p>";
+    const reload = document.createElement("div");
+    reload.setAttribute("role", "button");
+    reload.textContent = "Reload page";
+    reload.style.cssText = "position:fixed;top:260px;left:20px;width:140px;height:36px;z-index:1";
+
+    // The stub is the reload: pressing that button is what clears the screen.
+    let pressed = null;
+    chrome.runtime.sendMessage = async (m) => {
+      if (m.type === "INPUT" && m.op === "click") {
+        pressed = document.elementFromPoint(m.x, m.y);
+        if (pressed === reload) { broken.remove(); reload.remove(); }
+      }
+      return { ok: true };
+    };
+
+    check("a clean page is not treated as broken", (await S.pageWasBroken()) === false);
+    document.body.append(broken, reload);
+    const wasBroken = await S.pageWasBroken();
+    check("Instagram's error screen is pressed, not read past", wasBroken === true, String(wasBroken));
+    check("  and it is Instagram's own Reload that was pressed", pressed === reload,
+      pressed ? pressed.textContent : "(nothing was clicked)");
+    check("  leaving a page that no longer reports as broken", S.pageFailedToLoad() === false);
+    chrome.runtime.sendMessage = () => Promise.resolve({ ok: true });
+  }
+
+  // ── typing that proves itself ──────────────────────────────────────────────
+  // A lead's handle went into the search box twice over and nothing in the layer
+  // noticed. Model both ways that happens — keystrokes landing somewhere else
+  // (focus taken by a modal, or by the person's own cursor in a window they can
+  // click in), and a clear that doesn't clear, which is exactly what CDP's Cmd+A
+  // did on macOS — and hold fillField to the same rule in both: the field holds
+  // the text, or the caller is told it doesn't. Never a second copy on top.
+  {
+    const box = document.createElement("input");
+    box.style.cssText = "position:fixed;top:100px;left:20px;width:300px;height:30px;z-index:1";
+    const note = document.createElement("div");
+    note.contentEditable = "true";
+    note.style.cssText = "position:fixed;top:150px;left:20px;width:300px;height:40px;z-index:1;border:1px solid #999";
+    const elsewhere = document.createElement("input");
+    document.body.append(box, note, elsewhere);
+
+    // The worker, as far as the content layer can tell: clicks focus whatever is
+    // painted at the point, typing appends to it, clearing empties it.
+    let focused = null;
+    let stealNextTyping = false;
+    let clearOnlyDeletesOne = false;
+    const write = (el, text) => {
+      if (el.value !== undefined) el.value = text;
+      else el.innerHTML = text.replace(/\n/g, "<br>");   // a soft break is a <br>, not a character
+    };
+    const readBack = (el) => (el.value !== undefined ? el.value : el.innerText);
+    chrome.runtime.sendMessage = async (m) => {
+      if (m.type !== "INPUT") return { ok: true };
+      if (m.op === "click") focused = document.elementFromPoint(m.x, m.y);
+      if (m.op === "clear" && focused) {
+        write(focused, clearOnlyDeletesOne ? readBack(focused).slice(0, -1) : "");
+      }
+      if (m.op === "type") {
+        const target = stealNextTyping ? elsewhere : focused;
+        stealNextTyping = false;
+        if (target) write(target, readBack(target) + m.text);
+      }
+      return { ok: true };
+    };
+
+    const HANDLE = "beatrcce__basso";
+    stealNextTyping = true;
+    const stolen = await S.fillField(() => box, HANDLE, 4);
+    check("typing that lands somewhere else is noticed and done again", stolen === null, String(stolen));
+    check("  and the field holds ONE copy of the handle", box.value === HANDLE, box.value);
+
+    write(box, "previous_lead");
+    clearOnlyDeletesOne = true;
+    const stuck = await S.fillField(() => box, HANDLE, 4);
+    check("a clear that doesn't clear is reported, not typed over",
+      typeof stuck === "string" && stuck.includes(HANDLE), String(stuck));
+    check("  and no send could have gone out on it", box.value !== HANDLE, box.value);
+    clearOnlyDeletesOne = false;
+
+    // A two-line message reads back with the break as a <br>. Comparing the text
+    // content would lose it, refuse a perfectly typed message, and fail the lead.
+    const twoLines = "first line\nsecond line";
+    const multiline = await S.fillField(() => note, twoLines, 4);
+    check("a message with a line break is accepted", multiline === null, String(multiline));
+
+    const gone = await S.fillField(() => null, HANDLE, 4, 1);
+    check("a field that never appears is reported", typeof gone === "string", String(gone));
+
+    // The point of no return. A lead is only worth starting over while nothing
+    // has been submitted, so what counts a submit has to be exact: a message
+    // that would not go in cleanly must not move it, and must not be sent.
+    {
+      const before = S.submitsMade();
+      let submitted = false;
+      const ok = await S.typeAndSubmit(() => box, "hi there", 4, { submit: async () => { submitted = true; } });
+      check("a message that typed cleanly is submitted", ok.status === "sent" && submitted, JSON.stringify(ok));
+      check("  and that moves the point of no return", S.submitsMade() === before + 1,
+        `${before} → ${S.submitsMade()}`);
+
+      const stuckAt = S.submitsMade();
+      let sentAnyway = false;
+      stealNextTyping = true;
+      clearOnlyDeletesOne = true;                 // every attempt now lands wrong
+      const refused = await S.typeAndSubmit(() => box, "hi there", 4,
+        { submit: async () => { sentAnyway = true; } });
+      clearOnlyDeletesOne = false;
+      check("a message that won't type is never submitted",
+        refused.status === "failed" && !sentAnyway, JSON.stringify(refused));
+      check("  and leaves the lead safe to start over", S.submitsMade() === stuckAt, `${S.submitsMade()}`);
+    }
+
+    box.remove(); note.remove(); elsewhere.remove();
+    chrome.runtime.sendMessage = () => Promise.resolve({ ok: true });
+  }
+
+  // ── the way in when Direct's search can't find them ────────────────────────
+  // Their profile, opened by address. What it says decides the lead — so a
+  // Message button, a private account and a 404 have to be told apart.
+  {
+    // The desktop left rail, which is on every page including a profile. Its
+    // "Messages" link is one letter away from the profile's own "Message"
+    // button, and clicking it walks out of the profile into the inbox — where
+    // the lead's thread is not open. That is what "their Message button didn't
+    // open a conversation" was, on every single lead.
+    const rail = document.createElement("a");
+    rail.href = "/direct/inbox/";
+    rail.innerHTML = '<span>Messages</span>';
+    rail.style.cssText = "position:fixed;top:400px;left:8px;width:180px;height:32px;z-index:1";
+    document.body.append(rail);
+    check("the navigation's Messages link is not a profile's button",
+      S.findMessageButton() === null, String(S.findMessageButton() && S.findMessageButton().textContent));
+    check("  so a page with only the rail is not reachable",
+      S.probeReachability() === "noMessageEntry", S.probeReachability());
+
+    const btn = document.createElement("div");
+    btn.setAttribute("role", "button");
+    btn.textContent = "Написать";
+    btn.style.cssText = "position:fixed;top:220px;left:20px;width:140px;height:32px;z-index:1";
+    document.body.append(btn);
+    check("the profile's Message button is found", S.findMessageButton() === btn,
+      String(S.findMessageButton() && S.findMessageButton().textContent));
+    check("  and such a profile reads as reachable", S.probeReachability() === "reachable",
+      S.probeReachability());
+
+    btn.remove();
+    rail.remove();
+    check("a profile with no way to message is not reachable",
+      S.probeReachability() === "noMessageEntry", S.probeReachability());
+
+    const gone = document.createElement("div");
+    gone.textContent = "Sorry, this page isn't available.";
+    document.body.append(gone);
+    check("  and a profile that 404s says the account is gone",
+      S.probeReachability() === "notFound", S.probeReachability());
+    gone.remove();
+  }
+
+  // ── Instagram's inline chat counts as an open conversation ─────────────────
+  // The Message button stopped navigating: it opens a chat panel over the
+  // profile and the URL never changes, so every profile entry reported "their
+  // Message button didn't open a conversation" with the chat right there.
+  {
+    const panel = document.createElement("div");
+    panel.style.cssText = "position:fixed;right:20px;bottom:20px;width:320px;height:200px;z-index:1;border:1px solid #999";
+    panel.innerHTML = '<div>Jahceim "JSDG" White</div><div>jsdgbeats · Instagram</div>';
+    const box = document.createElement("input");
+    box.placeholder = "Message...";
+    box.style.cssText = "width:280px;height:32px";
+    panel.append(box);
+    document.body.append(panel);
+    check("the inline chat reads as the lead's conversation",
+      S.findLeadChatBox("jsdgbeats") === box, String(S.findLeadChatBox("jsdgbeats")));
+    check("  and it is somebody else's conversation for another handle",
+      S.findLeadChatBox("someoneelse") === null, String(S.findLeadChatBox("someoneelse")));
+
+    // A post page has a text box under the author's name too — typing the
+    // message THERE would publish it as a public comment.
+    const post = document.createElement("div");
+    post.style.cssText = "position:fixed;left:20px;bottom:20px;width:320px;height:120px;z-index:1";
+    post.innerHTML = "<div>jsdgbeats</div>";
+    const comment = document.createElement("input");
+    comment.placeholder = "Add a comment…";
+    comment.style.cssText = "width:280px;height:32px";
+    post.append(comment);
+    panel.remove();
+    document.body.append(post);
+    check("  a comment box under their post is NOT their conversation",
+      S.findLeadChatBox("jsdgbeats") === null, String(S.findLeadChatBox("jsdgbeats")));
+    post.remove();
+  }
+
+  // ── a profile format standing on the profile replies from there ────────────
+  // After Instagram's reload the page is already on the lead's profile, with the
+  // posts and the story ring right there. Opening the conversation first was
+  // pure cost — and the click went to a chat popup that proved nothing. The
+  // profile here is a private one, so the reply path answers immediately: what
+  // is under test is WHERE the lead was routed, not the share sheet.
+  {
+    const steps = [];
+    const priv = document.createElement("div");
+    priv.textContent = "This account is private";
+    priv.style.cssText = "position:fixed;top:420px;left:400px;width:300px;height:32px;z-index:1";
+    document.body.append(priv);
+    chrome.runtime.sendMessage = async (m) => {
+      if (m.type === "STEP") steps.push(m.text);
+      return { ok: true };
+    };
+
+    history.pushState({}, "", "/lead/");
+    const done = await ask({ type: "SEND",
+      payload: { username: "lead", message: "hey", settings: { format: "replyToPost", skipExisting: true } } },
+      30000);
+    check("a profile-format lead on the profile replies from there",
+      steps.some((t) => /already standing on their profile/.test(t)), steps.join(" | ") || "(no steps)");
+    check("  the reply path is what answered", done.reason === "private profile", JSON.stringify(done));
+    check("  Message is never pressed on the way",
+      !steps.some((t) => /Message button/.test(t)), steps.join(" | ") || "(no steps)");
+    check("  and Direct is not walked either",
+      !steps.some((t) => /picking result row/.test(t)), steps.join(" | ") || "(no steps)");
+
+    history.pushState({}, "", "/test/content-layer.html");
+    priv.remove();
+    chrome.runtime.sendMessage = () => Promise.resolve({ ok: true });
+  }
+
+  // ── a lead picked up where the page already stands ─────────────────────────
+  // Instagram's reload kills this layer mid-lead and the worker asks again. The
+  // page is still on the lead's profile — going back through Direct's search
+  // from there costs a minute and lands on the same page, which is exactly what
+  // one run did three times over. So: profile → Message button → thread → send,
+  // with no search anywhere in it.
+  {
+    const steps = [];
+    const search = document.createElement("input");
+    search.placeholder = "Search";
+    search.style.cssText = "position:fixed;top:8px;left:400px;width:200px;height:28px;z-index:1";
+    const header = document.createElement("a");
+    header.href = "/lead/";
+    header.textContent = "lead";
+    header.style.cssText = "position:fixed;top:70px;left:20px;width:120px;height:28px;z-index:1";
+    const message = document.createElement("div");
+    message.setAttribute("role", "button");
+    message.textContent = "Message";
+    message.style.cssText = "position:fixed;top:300px;left:20px;width:140px;height:36px;z-index:1";
+    const composer = document.createElement("div");
+    composer.contentEditable = "true";
+    composer.style.cssText = "position:fixed;top:600px;left:400px;width:400px;height:40px;z-index:1;border:1px solid #999";
+    document.body.append(search, header, message, composer);
+
+    let focused = null;
+    chrome.runtime.sendMessage = async (m) => {
+      if (m.type === "STEP") { steps.push(m.text); return { ok: true }; }
+      if (m.type === "INPUT" && m.op === "click") {
+        focused = document.elementFromPoint(m.x, m.y);
+        // Their Message button opens the conversation — the whole point of it.
+        if (focused === message) history.pushState({}, "", "/direct/t/1/");
+      }
+      if (m.type === "INPUT" && m.op === "clear" && focused) focused.textContent = "";
+      if (m.type === "INPUT" && m.op === "type" && focused) focused.textContent += m.text;
+      return { ok: true };
+    };
+
+    history.pushState({}, "", "/lead/");            // where the reload left us
+    check("standing on the lead's profile is recognised", S.onLeadProfile("lead") === true,
+      location.pathname);
+    const done = await ask({ type: "SEND",
+      payload: { username: "lead", message: "hey", settings: { format: "justDM" } } }, 60000);
+    check("a lead is picked up from the profile the page is already on",
+      done.status === "sent", JSON.stringify(done));
+    check("  through their Message button",
+      steps.some((t) => /Message button/.test(t)), steps.join(" | ") || "(no steps)");
+    check("  and Direct's search is not walked again",
+      !steps.some((t) => /picking result row/.test(t)), steps.join(" | ") || "(no steps)");
+
+    history.pushState({}, "", "/test/content-layer.html");
+    search.remove(); header.remove(); message.remove(); composer.remove();
+    chrome.runtime.sendMessage = () => Promise.resolve({ ok: true });
+  }
+
+  // ── the existing-conversation check asks Instagram, not the screen ──────────
+  // Opening a chat makes Instagram fetch that thread, and its answer settles the
+  // question. Bubble geometry had skipped leads over threads with nothing in
+  // them twice by now — it is the fallback, for when nothing was captured.
+  {
+    const steps = [];
+    const header = document.createElement("a");
+    header.href = "/lead/";
+    header.textContent = "lead";
+    header.style.cssText = "position:fixed;top:70px;left:20px;width:120px;height:28px;z-index:1";
+    const composer = document.createElement("div");
+    composer.contentEditable = "true";
+    composer.style.cssText = "position:fixed;top:600px;left:400px;width:400px;height:40px;z-index:1;border:1px solid #999";
+    document.body.append(header, composer);
+
+    let answer = { known: true, exists: true, messages: 3 };
+    let focused = null;
+    chrome.runtime.sendMessage = async (m) => {
+      if (m.type === "STEP") { steps.push(m.text); return { ok: true }; }
+      if (m.type === "CONVERSATION") return answer;
+      if (m.type === "INPUT" && m.op === "click") focused = document.elementFromPoint(m.x, m.y);
+      if (m.type === "INPUT" && m.op === "clear" && focused) focused.textContent = "";
+      if (m.type === "INPUT" && m.op === "type" && focused) focused.textContent += m.text;
+      return { ok: true };
+    };
+    const send = () => ask({ type: "SEND",
+      payload: { username: "lead", message: "hey", settings: { format: "justDM", skipExisting: true } } },
+      60000);
+
+    history.pushState({}, "", "/direct/t/1/");
+    const skipped = await send();
+    check("Instagram's own answer skips a lead we have written to",
+      skipped.status === "skipped" && skipped.reason === "existing conversation", JSON.stringify(skipped));
+    check("  and nothing on screen is measured for it",
+      !steps.some((t) => /from the screen/.test(t)), steps.join(" | ") || "(no steps)");
+
+    steps.length = 0;
+    answer = { known: true, exists: false, messages: 0 };
+    const fresh = await send();
+    check("a thread Instagram says is empty is not an existing conversation",
+      fresh.status === "sent", JSON.stringify(fresh));
+
+    steps.length = 0;
+    answer = { known: false };
+    const unheard = await send();
+    check("silence from Instagram falls back to reading the screen",
+      steps.some((t) => /from the screen/.test(t)), steps.join(" | ") || "(no steps)");
+    check("  and the lead still goes out", unheard.status === "sent", JSON.stringify(unheard));
+
+    history.pushState({}, "", "/test/content-layer.html");
+    header.remove(); composer.remove();
+    chrome.runtime.sendMessage = () => Promise.resolve({ ok: true });
+  }
+
+  document.getElementById("out").textContent = lines.join("\n");
+  console.log(lines.every((l) => l.startsWith("PASS")) ? "ALL PASS" : "SOME FAILED");
+})();
+</script>

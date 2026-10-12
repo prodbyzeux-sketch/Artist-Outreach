@@ -1,0 +1,200 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>campaign bar harness</title>
+<!--
+  Drives the REAL switcher — the markup lifted out of src/app.html and the real
+  src/ui/campaigns.js over the real src/storage.js — against a stub of the bit
+  of `chrome` it touches.
+
+      python3 -m http.server 8765     (from the repo root)
+      open http://127.0.0.1:8765/test/campaign-bar.html
+
+  Switching campaigns RELOADS the page (src/ui/campaigns.js says why), which is
+  the one thing test/campaigns.test.mjs can't reach: it is the behaviour, not an
+  implementation detail. So the run is a step machine — the fake storage and the
+  results live in sessionStorage and survive each reload, and the step counter is
+  written BEFORE the click that reloads.
+
+  What it is here for, beyond drawing the right thing: a message typed a moment
+  before switching has to land in the campaign being LEFT (the sections save on a
+  debounce, and the reload runs those timers over), and neither arrow may move
+  while a run is going — the worker reads the leads of whichever campaign is
+  active, once per lead.
+-->
+
+<style>
+  body { margin: 0; font: 13px/1.4 -apple-system, sans-serif; background: #111; color: #eee; }
+  #out { position: fixed; right: 12px; top: 12px; background: #000; color: #0f0; padding: 12px 16px;
+         font: 12px/1.6 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 999; }
+  .campaign-arrow, .btn { cursor: pointer; }
+  #stage { padding: 40px 0; }
+</style>
+<div id="stage"></div>
+<pre id="out">running…</pre>
+
+<script type="module">
+const out = document.getElementById("out");
+addEventListener("error", (e) => { out.textContent = `ERROR  ${e.message}`; });
+addEventListener("unhandledrejection", (e) => { out.textContent = `ERROR  ${(e.reason && e.reason.message) || e.reason}`; });
+
+const SAVE = "campaign-bar-run";
+const $ = (id) => document.getElementById(id);
+const wait = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+// What was in storage before campaigns existed: the run has to find it as
+// campaign one, and it is also the data the switching is checked against.
+const SEED = {
+  leads: [{ id: "l1", handle: "alice", status: "pending" }, { id: "l2", handle: "bob", status: "pending" }],
+  messages: [{ id: "m1", text: "the first campaign's opener" }],
+};
+
+const s = JSON.parse(sessionStorage.getItem(SAVE) || "null") || { step: 0, store: SEED, lines: [], flags: {} };
+const persist = () => sessionStorage.setItem(SAVE, JSON.stringify(s));
+const check = (name, pass, extra = "") => {
+  s.lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+  persist();
+};
+
+globalThis.chrome = {
+  storage: {
+    local: {
+      get: async (key) => (key in s.store ? { [key]: s.store[key] } : {}),
+      set: async (obj) => { Object.assign(s.store, obj); persist(); },
+      remove: async (key) => { delete s.store[key]; persist(); },
+    },
+  },
+};
+globalThis.__confirmed = true;
+globalThis.confirm = () => globalThis.__confirmed;
+
+// The switcher under test is the one that ships — pulled out of src/app.html, so
+// a renamed id fails the test instead of drifting past it.
+const page = new DOMParser().parseFromString(await (await fetch("/src/app.html")).text(), "text/html");
+$("stage").innerHTML = page.querySelector(".campaigns").outerHTML + page.querySelector(".campaign-tools").outerHTML;
+
+const store = await import("/src/storage.js");
+const bar = await import("/src/ui/campaigns.js");
+
+// Stands in for what the page is holding when you switch: a message typed into
+// the box and not yet saved. It must end up in the campaign being left.
+const TYPED = "typed a moment before switching";
+await bar.initCampaigns({
+  commitCurrent: async () => {
+    const msgs = await store.getMessages();
+    await store.setMessages([...msgs, { id: "m_typed", text: TYPED }]);
+  },
+});
+
+const name = () => $("campaignName").value;
+const count = () => $("campaignCount").textContent;
+const messagesOf = (id) => s.store[`messages:${id}`] || [];
+const ids = () => (s.store.campaigns || []).map((c) => c.id);
+
+// The click that reloads: the step counter goes down first, or the next load
+// runs this same step again.
+const leaves = (id) => { s.step += 1; persist(); $(id).click(); };
+
+function finish() {
+  out.textContent = s.lines.join("\n") + `\n\n${s.lines.filter((l) => l.startsWith("PASS")).length}/${s.lines.length} passed`;
+  sessionStorage.removeItem(SAVE);   // a manual reload runs the whole thing again
+}
+
+await run();
+
+async function run() {
+// ── step 0 · one campaign, made out of whatever was already there ─────────────
+if (s.step === 0) {
+  check("the data that was there is campaign one", name() === "Campaign 1", name());
+  check("  its leads came across", (await store.getLeads()).length === 2);
+  check("  both arrows are dead — there is nowhere to go",
+    $("campaignPrev").disabled && $("campaignNext").disabled);
+  check("  there is nothing to delete", $("campaignDelete").hidden);
+  check("  and one campaign is not counted at you", count() === "", count());
+
+  leaves("campaignNew");
+}
+
+// ── step 1 · a second campaign, and what the first one kept ───────────────────
+else if (s.step === 1) {
+  const [first, second] = ids();
+  check("a new campaign opens on itself", s.store.activeCampaign === second && name() === "Campaign 2", name());
+  check("  the arrows point back the way you came",
+    !$("campaignPrev").disabled && $("campaignNext").disabled);
+  check("  and say where you are", count() === "2 of 2", count());
+  check("  it can be deleted", !$("campaignDelete").hidden);
+
+  check("what was typed before switching stays with the campaign it was typed in",
+    messagesOf(first).some((m) => m.text === TYPED), JSON.stringify(messagesOf(first)));
+  check("  and the new campaign starts with nothing in it",
+    !messagesOf(second).some((m) => m.text === TYPED), JSON.stringify(messagesOf(second)));
+
+  $("campaignName").value = "Winter push";
+  $("campaignName").dispatchEvent(new Event("change"));
+  await wait();
+  check("the name is the rename control", s.store.campaigns[1].name === "Winter push",
+    JSON.stringify(s.store.campaigns.map((c) => c.name)));
+
+  $("campaignName").value = "   ";
+  $("campaignName").dispatchEvent(new Event("change"));
+  await wait();
+  check("  an empty one comes back rather than being saved",
+    s.store.campaigns[1].name === "Winter push" && name() === "Winter push", name());
+
+  leaves("campaignPrev");
+}
+
+// ── step 2 · back, and the two things that must not happen during a run ───────
+else if (s.step === 2) {
+  const [first] = ids();
+
+  if (s.flags.raced) {
+    check("an arrow pressed while a run is going does nothing", false, "the page switched anyway");
+    return finish();
+  }
+
+  check("the arrow goes back to the campaign before it", s.store.activeCampaign === first && name() === "Campaign 1", name());
+  check("  which still has its own leads", (await store.getLeads()).map((l) => l.handle).join() === "alice,bob");
+  check("  and its own messages", messagesOf(first).some((m) => m.text === TYPED));
+  check("  and knows where it is", count() === "1 of 2", count());
+
+  bar.setCampaignsLocked(true);
+  check("a run puts the whole switcher out of reach",
+    $("campaignPrev").disabled && $("campaignNext").disabled
+      && $("campaignNew").disabled && $("campaignDelete").disabled && $("campaignName").disabled);
+  bar.setCampaignsLocked(false);
+
+  // The press that beats the lock into place: the page is told a run started by
+  // a message, which can arrive after the button was already live.
+  s.store.runState = { running: true };
+  s.flags.raced = true;
+  persist();
+  $("campaignNext").click();
+  await wait(80);
+  check("an arrow pressed while a run is going does nothing", true);
+  s.flags.raced = false;
+  s.store.runState = { running: false };
+  persist();
+
+  globalThis.__confirmed = false;
+  $("campaignDelete").click();
+  await wait(60);
+  check("Delete asks before it takes a campaign", ids().length === 2, JSON.stringify(ids()));
+
+  globalThis.__confirmed = true;
+  leaves("campaignDelete");
+}
+
+// ── step 3 · what deleting one leaves behind ──────────────────────────────────
+else {
+  const left = s.store.campaigns;
+  check("deleting a campaign leaves the other one open", left.length === 1 && name() === "Winter push", name());
+  check("  and takes everything that was only its with it",
+    !Object.keys(s.store).some((k) => /^(leads|messages|followups|table|settings):/.test(k) && !k.endsWith(left[0].id)),
+    JSON.stringify(Object.keys(s.store)));
+  check("  and there is nothing left to delete", $("campaignDelete").hidden && count() === "");
+  return finish();
+}
+
+out.textContent = s.lines.join("\n") + "\n…";
+}
+</script>

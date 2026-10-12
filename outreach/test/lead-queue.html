@@ -1,0 +1,176 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>lead queue harness</title>
+<!--
+  Drives the REAL queue — the markup lifted out of src/app.html and the real
+  src/ui/leads.js — against a stub of the little bit of `chrome` it touches.
+
+      python3 -m http.server 8765     (from the repo root)
+      open http://127.0.0.1:8765/test/lead-queue.html
+
+  It covers the two things a selection can do that nothing else in the project
+  checks: copying the handles out, and removing the rows — the one bulk action
+  that takes something away, and takes it from the dashboard too (see
+  test/stats.test.mjs), so it has to ask first and mean it when the answer is no.
+-->
+
+<style>
+  body { margin: 0; font: 13px/1.4 -apple-system, sans-serif; background: #111; color: #eee; }
+  #out { position: fixed; right: 12px; top: 12px; background: #000; color: #0f0; padding: 12px 16px;
+         font: 12px/1.6 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 999; }
+</style>
+<div id="stage"></div>
+<pre id="out">running…</pre>
+
+<script>
+  globalThis.__store = {};
+  globalThis.chrome = {
+    runtime: { sendMessage: () => Promise.resolve({ ok: true }), onMessage: { addListener: () => {} } },
+    storage: {
+      local: {
+        get: async (key) => (key in globalThis.__store ? { [key]: globalThis.__store[key] } : {}),
+        set: async (obj) => { Object.assign(globalThis.__store, obj); },
+      },
+    },
+  };
+  // Both stubbed at the window: one is a browser API this page has no permission
+  // for, the other stops the run dead waiting for a human.
+  globalThis.__copied = null;
+  globalThis.__clipboardFails = false;
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (t) => {
+      if (globalThis.__clipboardFails) throw new Error("Document is not focused");
+      globalThis.__copied = t;
+    } },
+  });
+  globalThis.__confirmed = true;
+  globalThis.__asked = [];
+  globalThis.confirm = (text) => { globalThis.__asked.push(text); return globalThis.__confirmed; };
+</script>
+
+<script type="module">
+addEventListener("error", (e) => { document.getElementById("out").textContent = `ERROR  ${e.message}`; });
+addEventListener("unhandledrejection", (e) => {
+  document.getElementById("out").textContent = `ERROR  ${(e.reason && e.reason.message) || e.reason}`;
+});
+
+const lines = [];
+const check = (name, pass, extra = "") => lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+const $ = (id) => document.getElementById(id);
+const tick = () => new Promise((r) => setTimeout(r));
+
+// The queue under test is the one that ships — pulled out of src/app.html, so a
+// renamed id fails the test instead of drifting past it.
+const page = new DOMParser().parseFromString(await (await fetch("/src/app.html")).text(), "text/html");
+// Only the queue: the files above it are ui/tables.js's, and it is not loaded here.
+const MARKUP = page.querySelector("#sec-leads").outerHTML;
+
+const LEADS = [
+  { id: "l1", handle: "alice", status: "sent", ts: Date.now() - 3600000, source: "manual", threadId: "t1" },
+  { id: "l2", handle: "bob", status: "pending", source: "manual" },
+  { id: "l3", handle: "carol", status: "sent", ts: Date.now() - 7200000, source: "manual", threadId: "t3" },
+];
+
+let n = 0;
+async function queue() {
+  $("stage").innerHTML = MARKUP;      // fresh markup: old listeners go with the old nodes
+  globalThis.__copied = null;
+  globalThis.__asked = [];
+  globalThis.__confirmed = true;
+  globalThis.__clipboardFails = false;
+  const mod = await import(`/src/ui/leads.js?${++n}`);
+  mod.initLeads(LEADS.map((l) => ({ ...l })), { log: () => {} });
+  const rows = () => [...document.querySelectorAll("#leadList .lead")];
+  return {
+    mod,
+    select: (...handles) => {
+      for (const row of rows()) {
+        const box = row.querySelector('input[type="checkbox"]');
+        if (handles.some((h) => row.textContent.includes(h)) && box && !box.checked) box.click();
+      }
+      return tick();
+    },
+    rows,
+    lead: (h) => mod.allLeads().find((l) => l.handle === h),
+  };
+}
+
+// ── copying a selection out ───────────────────────────────────────────────────
+{
+  const q = await queue();
+  check("the queue draws its rows", q.rows().length === 3, `${q.rows().length} rows`);
+  check("  and the bulk bar is out of the way until something is selected", $("bulkBar").hidden);
+
+  await q.select("alice", "carol");
+  check("selecting rows brings up the bulk bar", !$("bulkBar").hidden && /2 selected/.test($("bulkCount").textContent),
+    $("bulkCount").textContent);
+
+  $("bulkCopy").click();
+  await tick();
+  check("Copy handles puts them on the clipboard", globalThis.__copied === "alice\ncarol",
+    JSON.stringify(globalThis.__copied));
+  check("  in queue order, one per line, ready to paste back",
+    (globalThis.__copied || "").split("\n").length === 2);
+  check("  and says how many went", /2 handles copied/.test($("bulkCount").textContent),
+    $("bulkCount").textContent);
+  check("  while the selection itself is left alone", q.rows().length === 3 && !q.lead("alice").removed);
+}
+
+// A clipboard that refuses is the whole reason this reports anything at all.
+{
+  const q = await queue();
+  globalThis.__clipboardFails = true;
+  await q.select("bob");
+  $("bulkCopy").click();
+  await tick();
+  check("a clipboard that refuses says so", /couldn't copy/.test($("bulkCount").textContent),
+    $("bulkCount").textContent);
+}
+
+// ── removing a selection ──────────────────────────────────────────────────────
+{
+  const q = await queue();
+  await q.select("alice", "carol");
+  globalThis.__confirmed = false;
+  $("bulkRemove").click();
+  await tick();
+  check("Remove asks before it takes anything", globalThis.__asked.length === 1,
+    JSON.stringify(globalThis.__asked));
+  check("  and says what it costs — the rows, the dashboard, and the way back",
+    /2 leads/.test(globalThis.__asked[0]) && /2 of them have been written to/.test(globalThis.__asked[0])
+    && /dashboard/.test(globalThis.__asked[0]) && /Restore/.test(globalThis.__asked[0]),
+    JSON.stringify(globalThis.__asked[0]));
+  check("  answering no removes nothing", !q.lead("alice").removed && !q.lead("carol").removed);
+  check("  and keeps the selection, so the answer can be yes", /2 selected/.test($("bulkCount").textContent),
+    $("bulkCount").textContent);
+
+  globalThis.__confirmed = true;
+  $("bulkRemove").click();
+  await tick();
+  check("answering yes removes them", q.lead("alice").removed === true && q.lead("carol").removed === true);
+  check("  they leave the visible queue", q.rows().length === 1 && q.rows()[0].textContent.includes("bob"),
+    q.rows().map((r) => r.textContent.slice(0, 12)).join(" | "));
+  // Leads belong to a campaign (src/storage.js), so the key the dashboard reads
+  // is `leads:campaignId` — this asks the store for it the way storage.js does.
+  const stored = globalThis.__store[`leads:${globalThis.__store.activeCampaign}`] || [];
+  check("  and the storage the dashboard reads",
+    stored.filter((l) => l.removed).length === 2,
+    JSON.stringify(stored.map((l) => `${l.handle}:${!!l.removed}`)));
+}
+
+// A selection of untouched leads has nothing to say about the dashboard.
+{
+  const q = await queue();
+  await q.select("bob");
+  globalThis.__confirmed = false;
+  $("bulkRemove").click();
+  await tick();
+  check("removing leads nothing was sent to skips the part about sends",
+    /Remove 1 lead from the queue\?/.test(globalThis.__asked[0]) && !/written to/.test(globalThis.__asked[0]),
+    JSON.stringify(globalThis.__asked[0]));
+}
+
+$("out").textContent = lines.join("\n") + "\n"
+  + (lines.every((l) => l.startsWith("PASS")) ? "ALL PASS" : "SOME FAILED");
+</script>

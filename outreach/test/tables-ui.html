@@ -1,0 +1,198 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tables + queue harness</title>
+<!--
+  Drives the REAL Leads section — the markup lifted out of src/app.html and the
+  real src/ui/tables.js + src/ui/leads.js, wired the way src/app.js wires them —
+  against a stub of the little bit of `chrome` it touches.
+
+      node test/tables-ui.test.mjs        (or open it by hand:)
+      python3 -m http.server 8765         (from outreach/)
+      open http://127.0.0.1:8765/test/tables-ui.html
+
+  It covers the one thing the queue is FOR: a second file adds to it. Every step
+  goes through the file input with a real File, so the parse, the storage write
+  and the rebuild all run exactly as they do for a person picking a file.
+-->
+
+<!-- The real stylesheet, so opening this by hand shows what a person sees. -->
+<link rel="stylesheet" href="/src/app.css">
+<style>
+  body { padding: 24px; }
+  #out { position: fixed; right: 12px; top: 12px; background: #000; color: #0f0; padding: 12px 16px;
+         font: 12px/1.6 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 999; }
+</style>
+<div id="stage"></div>
+<pre id="out">running…</pre>
+
+<script>
+  globalThis.__store = {};
+  globalThis.chrome = {
+    runtime: { sendMessage: () => Promise.resolve({ ok: true }), onMessage: { addListener: () => {} } },
+    storage: {
+      local: {
+        get: async (key) => (key in globalThis.__store ? { [key]: globalThis.__store[key] } : {}),
+        set: async (obj) => { Object.assign(globalThis.__store, obj); },
+        remove: async (key) => { delete globalThis.__store[key]; },
+      },
+    },
+  };
+  // Removing a file asks first, and the answer stops the run dead without this.
+  globalThis.__asked = [];
+  globalThis.confirm = (text) => { globalThis.__asked.push(text); return true; };
+</script>
+
+<script type="module">
+addEventListener("error", (e) => { document.getElementById("out").textContent = `ERROR  ${e.message}`; });
+addEventListener("unhandledrejection", (e) => {
+  document.getElementById("out").textContent = `ERROR  ${(e.reason && e.reason.message) || e.reason}`;
+});
+
+const lines = [];
+const check = (name, pass, extra = "") => lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+const $ = (id) => document.getElementById(id);
+
+// The section under test is the one that ships — pulled out of src/app.html, so
+// a renamed id fails the test instead of drifting past it. The variable chips
+// live in the Messages section but are filled from the tables, so they come too.
+const page = new DOMParser().parseFromString(await (await fetch("/src/app.html")).text(), "text/html");
+$("stage").innerHTML = page.querySelector("#sec-leads").outerHTML + page.querySelector("#varsRow").outerHTML;
+
+const tablesMod = await import("/src/ui/tables.js");
+const leadsMod = await import("/src/ui/leads.js");
+
+// The wiring src/app.js does: the files decide who is in the queue.
+leadsMod.initLeads([], { log: () => {} });
+tablesMod.initTables([], {
+  onChanged: () => leadsMod.rebuildFromTables(tablesMod.currentTables()),
+  insertToken: () => {},
+});
+
+// ── driving it ────────────────────────────────────────────────────────────────
+const cards = () => [...document.querySelectorAll(".table-card")];
+const queue = () => leadsMod.allLeads().filter((l) => !l.removed).map((l) => l.handle);
+const lead = (handle) => leadsMod.allLeads().find((l) => l.handle === handle);
+const chips = () => [...document.querySelectorAll("#varChips .chip")].map((c) => c.textContent);
+
+// Wait for the import to land rather than guessing at a delay: reading the file
+// is async all the way down (File.text → parse → storage).
+async function until(done, what) {
+  for (let i = 0; i < 200; i++) {
+    if (done()) return true;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+async function addFile(name, text) {
+  const input = $("fileInput");
+  const dt = new DataTransfer();
+  dt.items.add(new File([text], name, { type: "text/csv" }));
+  input.files = dt.files;
+  // Every import that lands writes its own line here, naming the file, so that
+  // is what tells the import from the "reading…" before it — waiting for the
+  // CARD would sail straight past a reload of a file that already has one.
+  $("tableStatus").textContent = "";
+  input.dispatchEvent(new Event("change"));
+  await until(() => /added|reloaded/.test($("tableStatus").textContent), `${name} to load`);
+}
+
+const A = "instagram,name\nalice,Alice\nbob,Bob\n";
+const B = "instagram,city\ncarol,Berlin\nbob,Wien\n";
+
+// ── one file ──────────────────────────────────────────────────────────────────
+await addFile("artists.csv", A);
+check("a file becomes a card", cards().length === 1, `${cards().length} cards`);
+check("  and its rows become the queue", queue().join() === "alice,bob", queue().join());
+check("  its columns become variables", chips().join() === "{username},{name}", chips().join());
+check("  and the section head counts it", /1 file · 2 rows · 2 unique handles/.test($("tableMeta").textContent),
+  $("tableMeta").textContent);
+
+// Something already known about a lead — the thing a second import used to take.
+document.querySelector('#leadList .lead [title="Skip"]').click();
+check("a lead can be marked by hand", lead("alice").status === "skipped", lead("alice").status);
+
+// A pasted name has always been kept through an import; it still is.
+$("usernameInput").value = "dave";
+$("addUsernames").click();
+check("a pasted name joins the queue", queue().includes("dave"), queue().join());
+
+// ── a second file ─────────────────────────────────────────────────────────────
+await addFile("berlin.csv", B);
+check("a second file is a second card, not a replacement", cards().length === 2, `${cards().length} cards`);
+check("  the first file's leads are still in the queue", queue().join() === "alice,bob,carol,dave", queue().join());
+check("  with everything they had", lead("alice").status === "skipped", lead("alice").status);
+check("  the new file's variables are there too", chips().join() === "{username},{name},{city}", chips().join());
+check("  and the head counts both files", /2 files · 4 rows · 3 unique handles/.test($("tableMeta").textContent),
+  $("tableMeta").textContent);
+
+// ── the same file again ───────────────────────────────────────────────────────
+await addFile("berlin.csv", B + "erik,Köln\n");
+check("picking a loaded file again reloads it instead of stacking", cards().length === 2, `${cards().length} cards`);
+check("  and says so", /berlin\.csv reloaded/.test($("tableStatus").textContent), $("tableStatus").textContent);
+check("  the rows it gained arrive", queue().includes("erik"), queue().join());
+
+// ── each file's own handle column ─────────────────────────────────────────────
+// Two files share nothing, so pointing one at a different column must leave the
+// other one's leads exactly where they are.
+{
+  const select = cards()[1].querySelector("select");
+  select.value = "1";                       // berlin.csv's "city" column
+  select.dispatchEvent(new Event("change"));
+  check("a file can be pointed at another column", queue().includes("berlin"), queue().join());
+  check("  and the other file's leads do not move", queue().includes("novaflux") === false
+    && queue().includes("alice") && queue().includes("bob"), queue().join());
+  select.value = "0";
+  select.dispatchEvent(new Event("change"));
+  check("  putting it back restores its handles", queue().includes("carol") && !queue().includes("berlin"),
+    queue().join());
+}
+
+// ── while a run is working ────────────────────────────────────────────────────
+// The queue and the files are one list to the worker, so a run has to reach the
+// per-file controls too — they each rewrite the whole thing.
+{
+  tablesMod.setTablesLocked(true);
+  const dead = (c) => c.querySelector("select").disabled && c.querySelector(".btn--danger").disabled;
+  check("a run locks every file's controls", cards().every(dead) && $("fileInput").disabled
+    && $("fileLabel").classList.contains("is-disabled"));
+  tablesMod.setTablesLocked(false);
+  check("  and they come back when it ends", cards().every((c) => !dead(c)) && !$("fileInput").disabled
+    && !$("fileLabel").classList.contains("is-disabled"));
+}
+
+// ── removing one ──────────────────────────────────────────────────────────────
+cards()[0].querySelector(".btn--danger").click();
+await until(() => cards().length === 1, "the card to go");
+check("removing a file asks first", globalThis.__asked.length === 1 && /artists\.csv/.test(globalThis.__asked[0]),
+  JSON.stringify(globalThis.__asked));
+check("  it takes the leads that were only in it", !queue().includes("alice"), queue().join());
+check("  keeps the ones the other file lists too", queue().includes("bob"), queue().join());
+check("  keeps the pasted names", queue().includes("dave"), queue().join());
+check("  and the variables go with the file", chips().join() === "{username},{city}", chips().join());
+
+// ── the empty state ───────────────────────────────────────────────────────────
+cards()[0].querySelector(".btn--danger").click();
+await until(() => cards().length === 0, "the last card to go");
+check("with no files the list is out of the way", $("tableList").hidden && $("varsRow").hidden);
+check("  and it says so", $("tableStatus").textContent === "no files loaded", $("tableStatus").textContent);
+check("  while the pasted names stay", queue().join() === "dave", queue().join());
+
+// ── a file that isn't a table ─────────────────────────────────────────────────
+{
+  const input = $("fileInput");
+  const dt = new DataTransfer();
+  dt.items.add(new File([""], "empty.csv", { type: "text/csv" }));
+  input.files = dt.files;
+  input.dispatchEvent(new Event("change"));
+  await until(() => !$("tableError").hidden, "the error to show");
+  check("a file with nothing in it says so", /empty\.csv/.test($("tableError").textContent),
+    $("tableError").textContent);
+  check("  loads nothing", cards().length === 0 && queue().join() === "dave", queue().join());
+  check("  and stops saying it is reading it", $("tableStatus").textContent === "no files loaded",
+    $("tableStatus").textContent);
+}
+
+$("out").textContent = lines.join("\n") + "\n"
+  + (lines.every((l) => l.startsWith("PASS")) ? "ALL PASS" : "SOME FAILED");
+</script>

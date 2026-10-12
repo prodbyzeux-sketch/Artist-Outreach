@@ -1,0 +1,122 @@
+{
+  "manifest_version": 3,
+  "name": "Artist Outreach",
+  "version": "0.3.0",
+  "description": "The Instagram side of Artist Outreach: DM the artists you saved from a lead table, follow up, and keep every reply in one inbox.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "tabGroups",
+    "scripting",
+    "debugger",
+    "alarms"
+  ],
+  "optional_permissions": [
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://*.instagram.com/*",
+    "https://*.cdninstagram.com/*",
+    "https://*.fbcdn.net/*",
+    "http://127.0.0.1:8788/*",
+    "http://localhost:8788/*",
+    "https://app.example.com/*",
+    "http://localhost:3456/*"
+  ],
+  "background": {
+    "service_worker": "sw.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.instagram.com/*"
+      ],
+      "js": [
+        "crm/content/ig-hook.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "js": [
+        "outreach/src/screen-fix.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://www.instagram.com/*"
+      ],
+      "js": [
+        "crm/content/bridge.js",
+        "crm/content/compose.js",
+        "crm/content/scroll.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.instagram.com/*"
+      ],
+      "js": [
+        "outreach/src/content/dom.js",
+        "outreach/src/content/hands.js",
+        "outreach/src/content/input.js",
+        "outreach/src/content/finders.js",
+        "outreach/src/content/direct.js",
+        "outreach/src/content/post.js",
+        "outreach/src/content/story.js",
+        "outreach/src/content/main.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://app.example.com/*",
+        "http://localhost:3456/*"
+      ],
+      "js": [
+        "platform/bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Artist Outreach — open the app"
+  },
+  "icons": {
+    "16": "outreach/icons/icon-16.png",
+    "32": "outreach/icons/icon-32.png",
+    "48": "outreach/icons/icon-48.png",
+    "128": "outreach/icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "outreach/assets/*"
+      ],
+      "matches": [
+        "https://*.instagram.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "outreach/src/app.html",
+        "crm/page/crm.html"
+      ],
+      "matches": [
+        "https://app.example.com/*",
+        "http://localhost:3456/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Outreach · Artist Outreach</title>
+    <script src="../../platform/embed.js"></script>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <h1 class="logo-head"><img id="logo" class="logo" src="../assets/logo.png" alt="Artist Outreach" /></h1>
+
+    <!-- ── CAMPAIGNS: which one the whole page below is about ──────────── -->
+    <div class="campaigns">
+      <button id="campaignPrev" class="campaign-arrow" aria-label="Previous campaign" title="Previous campaign">‹</button>
+      <input id="campaignName" class="campaign-name" aria-label="Campaign name" maxlength="60" spellcheck="false" />
+      <button id="campaignNext" class="campaign-arrow" aria-label="Next campaign" title="Next campaign">›</button>
+    </div>
+    <div class="campaign-tools">
+      <span id="campaignCount" class="muted"></span>
+      <button id="campaignNew" class="btn btn--tiny btn--ghost">+ New campaign</button>
+      <button id="campaignDelete" class="btn btn--tiny btn--danger" hidden>Delete</button>
+    </div>
+
+    <main>
+      <!-- ── LEADS: where they come from, and the queue itself ───────── -->
+      <details class="card" id="sec-leads" open>
+        <summary class="card-head">
+          <h2>Leads</h2>
+          <span id="tableMeta" class="muted"></span>
+        </summary>
+        <p class="hint">
+          CSV, TSV or XLSX — add as many files as you like, they stack into one
+          queue. Every column besides the handle becomes a
+          <code>{variable}</code> you can use in messages.
+        </p>
+
+        <div class="row">
+          <label id="fileLabel" class="btn btn--ghost" for="fileInput">Add file…</label>
+          <button id="aoImport" class="btn btn--ghost" type="button" title="Import saved artists from the Artist Outreach web app">From Artist Outreach…</button>
+          <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx" multiple hidden />
+          <span id="tableStatus" class="muted">no files loaded</span>
+        </div>
+
+        <div id="tableError" class="banner banner--error" hidden></div>
+
+        <div id="tableList" class="table-list" hidden></div>
+
+        <div class="or-line"><span>or paste usernames</span></div>
+        <div class="field">
+          <textarea id="usernameInput" rows="3" placeholder="alice_ig&#10;@bob.dev&#10;https://instagram.com/carol"></textarea>
+          <span class="row">
+            <button id="addUsernames" class="btn btn--ghost">Add usernames to queue</button>
+            <span id="addResult" class="muted" hidden></span>
+          </span>
+        </div>
+
+        <!-- ── the queue ──────────────────────────────────────────────── -->
+        <div class="queue">
+          <div class="queue-bar">
+            <input type="search" id="leadSearch" class="search" placeholder="Search @handle…" />
+            <div id="statusChips" class="chips chips--filter"></div>
+          </div>
+
+          <div id="queueLocked" class="banner" hidden>
+            A run is in progress — the queue is read-only until it finishes.
+          </div>
+
+          <div id="bulkBar" class="queue-bulk" hidden>
+            <span id="bulkCount" class="muted"></span>
+            <button id="bulkCopy" class="btn btn--tiny">Copy handles</button>
+            <button id="bulkRequeue" class="btn btn--tiny">Return to queue</button>
+            <button id="bulkSkip" class="btn btn--tiny">Skip</button>
+            <button id="bulkRemove" class="btn btn--tiny btn--danger">Remove</button>
+            <button id="bulkRestore" class="btn btn--tiny" hidden>Restore</button>
+            <button id="bulkClear" class="btn btn--tiny btn--ghost">Clear selection</button>
+          </div>
+
+          <div id="followupMonitor" class="fu-monitor" hidden></div>
+
+          <div class="queue-head">
+            <label class="cell cell--check"><input type="checkbox" id="selectAll" /></label>
+            <span class="cell cell--handle">Lead</span>
+            <span class="cell cell--status">Status</span>
+            <span class="cell cell--fu" title="Follow-ups sent, and what is owed">F/up</span>
+            <span class="cell cell--when">When</span>
+            <span class="cell cell--note">Note</span>
+            <span class="cell cell--act"></span>
+          </div>
+          <div id="leadList" class="list list--leads"></div>
+
+          <div class="row row--between queue-foot">
+            <span id="queueSummary" class="muted"></span>
+            <span class="row">
+              <button id="showMore" class="btn btn--tiny" hidden>Show more</button>
+              <button id="resetStatuses" class="btn btn--tiny">Reset statuses</button>
+            </span>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── MESSAGES ────────────────────────────────────────────────── -->
+      <details class="card" id="sec-messages" open>
+        <summary class="card-head">
+          <h2>Messages</h2>
+          <span class="muted">one is chosen at random per lead</span>
+        </summary>
+        <p class="hint">
+          <code>{name|hey|yo}</code> picks one at random ·
+          <code>{variable}</code> comes from your table ·
+          <code>{name?}</code> drops itself when the value is blank.
+        </p>
+
+        <div id="varsRow" class="varsrow" hidden>
+          <span class="muted">Variables:</span>
+          <div id="varChips" class="chips"></div>
+        </div>
+
+        <div id="messageList" class="list"></div>
+        <button id="addMessage" class="btn btn--ghost btn--block">+ Add message variant</button>
+
+        <div class="preview-line">
+          <span class="muted">Preview (first lead):</span>
+          <span id="messagePreview" class="preview-text">—</span>
+        </div>
+      </details>
+
+      <!-- ── FOLLOW-UPS ──────────────────────────────────────────────── -->
+      <details class="card" id="sec-followups" open>
+        <summary class="card-head">
+          <h2>Follow-ups</h2>
+          <span class="muted">sent in order, after the queue</span>
+        </summary>
+        <p class="hint">
+          A second message to someone who was written to and never answered, straight
+          into the existing conversation. Anyone who replies drops out at once.
+        </p>
+
+        <label class="field field--check">
+          <input type="checkbox" id="followupsEnabled" />
+          <span>Send follow-ups</span>
+        </label>
+
+        <div id="followupList" class="list"></div>
+        <button id="addFollowup" class="btn btn--ghost btn--block">+ Add follow-up step</button>
+
+        <div class="field-group fu-limits">
+          <span class="group-label">Silence before the next step</span>
+          <div class="row">
+            <input type="number" id="followupAfterHours" class="num" min="1" />
+            <span class="muted">hours since our last message to them</span>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Max follow-ups per run</span>
+          <input type="number" id="followupMaxPerRun" class="num" min="0" />
+          <em class="note">0 = no cap, which is the default.</em>
+        </label>
+
+        <div class="preview-line">
+          <span class="muted">Next follow-up (first lead):</span>
+          <span id="followupPreview" class="preview-text">—</span>
+        </div>
+      </details>
+
+      <!-- ── SETTINGS ────────────────────────────────────────────────── -->
+      <details class="card" id="sec-settings" open>
+        <summary class="card-head"><h2>Settings</h2></summary>
+
+        <div class="field-group">
+          <span class="group-label">Send paths</span>
+          <label class="field field--check"><input type="checkbox" id="fmtJustDM" /><span>Just DM — profile → Message → type in the thread</span></label>
+          <label class="field field--check"><input type="checkbox" id="fmtReplyToPost" /><span>Reply to a post — share their latest post + message</span></label>
+          <label class="field field--check"><input type="checkbox" id="fmtReplyToStory" /><span>Reply to a story — reply to their story / highlight</span></label>
+          <p class="hint hint--tight">One is picked at random per lead, and falls back story → post → DM.</p>
+        </div>
+
+        <label class="field field--check" id="skipExistingField">
+          <input type="checkbox" id="skipExisting" />
+          <span>Skip leads I already have a conversation with</span>
+        </label>
+
+        <div class="field-group">
+          <label class="field field--check">
+            <input type="checkbox" id="audienceFilter" />
+            <span>Only write to accounts inside these bounds
+              <em class="note">— read before the run walks to them · 0 means no bound</em></span>
+          </label>
+          <div class="row">
+            <input type="number" id="minFollowers" class="num" min="0" /> <span class="dash">–</span>
+            <input type="number" id="maxFollowers" class="num" min="0" />
+            <span class="muted">followers</span>
+          </div>
+          <div class="row">
+            <input type="number" id="minPosts" class="num" min="0" />
+            <span class="muted">posts or more</span>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <span class="group-label">Pause between leads (sec)</span>
+          <div class="row">
+            <input type="number" id="perMin" class="num" min="0" /> <span class="dash">–</span>
+            <input type="number" id="perMax" class="num" min="0" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <span class="group-label">Typing speed — <b id="typingSpeedLabel">1.0×</b> of normal</span>
+          <input type="range" id="typingSpeed" class="slider" min="0.3" max="4" step="0.1" />
+          <div class="row row--between"><span class="muted">0.3× slower</span><span class="muted">4× faster</span></div>
+        </div>
+
+        <label class="field">
+          <span>Max sends per run (0 = no cap)</span>
+          <input type="number" id="maxPerRun" class="num" min="0" />
+        </label>
+
+        <label class="field field--check" id="notifyField">
+          <input type="checkbox" id="notifyOnFinish" />
+          <span>Notify me when a run ends
+            <em class="note" id="notifyNote">— Chrome will ask first, and one test notification goes out straight away.</em></span>
+        </label>
+
+        <div class="field-group">
+          <span class="group-label">Hands over the work window</span>
+          <div id="skinPicker" class="segmented"></div>
+        </div>
+      </details>
+
+      <!-- ── DASHBOARD ───────────────────────────────────────────────── -->
+      <details class="card" id="sec-dashboard" open>
+        <summary class="card-head"><h2>Dashboard</h2></summary>
+
+        <div class="row row--between dash-bar">
+          <span id="inboxAge" class="muted"></span>
+          <button id="refreshInbox" class="btn btn--tiny">Reread the inbox</button>
+        </div>
+
+        <div id="whoCard" class="who"></div>
+
+        <div id="statRow" class="stats"></div>
+
+        <div class="dash-block">
+          <div class="dash-head"><h3>Reply rate per opener</h3></div>
+          <div id="openerRates" class="rates"></div>
+        </div>
+
+        <div class="dash-block" id="pathBlock" hidden>
+          <div class="dash-head"><h3>Reply rate per send path</h3></div>
+          <div id="pathRates" class="rates"></div>
+        </div>
+
+        <div class="dash-block">
+          <div class="dash-head">
+            <h3>Activity</h3>
+            <span id="gridTotal" class="muted"></span>
+          </div>
+          <div id="activityGrid" class="grid"></div>
+        </div>
+
+        <div class="dash-block">
+          <div class="dash-head">
+            <h3>When sends land</h3>
+            <span id="bestHour" class="muted"></span>
+          </div>
+          <div id="hourChart" class="hours"></div>
+        </div>
+      </details>
+    </main>
+
+    <footer class="runbar">
+      <div class="runbar-top">
+        <button id="runBtn" class="btn btn--primary">Start</button>
+        <div id="progress" class="progress muted">—</div>
+        <div id="resumeAsk" class="resume-ask" hidden>
+          <span id="resumeText"></span>
+          <button id="resumeContinue" class="btn btn--tiny">Finish it</button>
+          <span class="muted">or start a new run of</span>
+          <input type="number" id="resumeLimit" class="num" min="0" aria-label="Sends in the new run" />
+          <button id="resumeFresh" class="btn btn--tiny">Start over</button>
+          <button id="resumeCancel" class="btn btn--tiny btn--ghost">Cancel</button>
+        </div>
+      </div>
+      <div id="log" class="log"></div>
+    </footer>
+
+    <!-- Import the artists saved in the Artist Outreach web app (ui/platform.js). -->
+    <dialog id="aoDialog" class="ao-dialog" aria-labelledby="aoTitle">
+      <form method="dialog" class="ao-form">
+        <div class="row row--between">
+          <h2 id="aoTitle">From Artist Outreach</h2>
+          <button class="btn btn--tiny btn--ghost" value="cancel" aria-label="Close">✕</button>
+        </div>
+        <p id="aoWho" class="hint"></p>
+        <div id="aoConnect" hidden>
+          <p class="hint">
+            Not connected yet. Open Artist Outreach, sign in, and in your account
+            menu (top right) press <b>Connect extension</b>. Then come back here.
+          </p>
+          <div class="row"><button id="aoOpen" class="btn" type="button">Open Artist Outreach</button></div>
+        </div>
+        <div id="aoForm" hidden>
+          <label class="field">
+            <span>Folder</span>
+            <select id="aoFolder"></select>
+          </label>
+          <label class="field">
+            <span>Which artists</span>
+            <select id="aoStatus">
+              <option value="pending">Not contacted yet</option>
+              <option value="saved">All saved (except "not similar")</option>
+              <option value="contacted">Already contacted</option>
+            </select>
+          </label>
+          <p class="hint">
+            Imported as a file of this campaign. Columns become variables:
+            <code>{name}</code>, <code>{listeners}</code>, <code>{reference}</code>.
+            Sends and replies flow back to Artist Outreach on their own.
+          </p>
+          <div class="row">
+            <button id="aoGo" class="btn btn--primary" type="button">Import</button>
+            <span id="aoStatusLine" class="muted"></span>
+          </div>
+        </div>
+        <div id="aoError" class="banner banner--error" hidden></div>
+      </form>
+    </dialog>
+
+    <!-- Not a module: the fold state has to be applied before the first paint,
+         or every section flashes open on load. -->
+    <script src="ui/sections.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

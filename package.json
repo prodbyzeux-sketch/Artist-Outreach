@@ -1,0 +1,11 @@
+{
+  "name": "artist-outreach-extension",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:fast && npm run test:browser",
+    "test:fast": "node --test 'test/*.test.js' 'crm/test/*.test.js' 'platform/test/*.test.mjs'",
+    "test:browser": "node --test --test-concurrency=1 'outreach/test/*.test.mjs' 'crm/test/*.test.mjs'"
+  }
+}

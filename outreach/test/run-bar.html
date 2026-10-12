@@ -1,0 +1,176 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>run bar harness</title>
+<!--
+  Drives the REAL run bar — the markup lifted out of src/app.html and the real
+  src/ui/run.js — against a stub of the little bit of `chrome` it touches.
+
+      python3 -m http.server 8765     (from the repo root)
+      open http://127.0.0.1:8765/test/run-bar.html
+
+  It exists for the question Start has to ask: a capped run that stopped part-way
+  can either finish what is left of the cap or begin a fresh one, and pressing
+  the wrong one silently sends the wrong number of messages to real people. So
+  every branch of that decision is held to what actually reaches the worker.
+-->
+
+<style>
+  body { margin: 0; font: 14px/1.4 -apple-system, sans-serif; background: #111; color: #eee; }
+  #out { position: fixed; right: 12px; top: 12px; background: #000; color: #0f0; padding: 12px 16px;
+         font: 12px/1.6 ui-monospace, monospace; border-radius: 8px; white-space: pre; z-index: 999; }
+</style>
+<div id="stage"></div>
+<pre id="out">running…</pre>
+
+<script>
+  globalThis.__toWorker = [];
+  globalThis.__store = {};
+  globalThis.chrome = {
+    runtime: {
+      sendMessage: (m) => { globalThis.__toWorker.push(m); return Promise.resolve({ ok: true }); },
+      onMessage: { addListener: () => {} },
+    },
+    storage: {
+      local: {
+        get: async (key) => (key in globalThis.__store ? { [key]: globalThis.__store[key] } : {}),
+        set: async (obj) => { Object.assign(globalThis.__store, obj); },
+      },
+    },
+  };
+</script>
+
+<script type="module">
+// A module that throws leaves #out saying "running…" for ever, which reads as a
+// harness that hung rather than one that broke.
+addEventListener("error", (e) => { document.getElementById("out").textContent = `ERROR  ${e.message}`; });
+addEventListener("unhandledrejection", (e) => {
+  document.getElementById("out").textContent = `ERROR  ${e.reason && e.reason.message || e.reason}`;
+});
+
+const lines = [];
+const check = (name, pass, extra = "") => lines.push(`${pass ? "PASS" : "FAIL"}  ${name}${extra ? "  " + extra : ""}`);
+const $ = (id) => document.getElementById(id);
+
+// The bar under test is the one that ships: pulled out of src/app.html rather
+// than copied here, so a renamed id fails the test instead of drifting past it.
+const page = new DOMParser().parseFromString(await (await fetch("/src/app.html")).text(), "text/html");
+// The logo comes along because it is the run's status light — run.js breathes it
+// while a run is on, and it lives at the top of the page rather than in the bar.
+const RUNBAR = page.querySelector("#logo").outerHTML + page.querySelector("footer.runbar").outerHTML;
+
+let n = 0;
+async function bar({ maxPerRun, sent, total = 4, running = false }) {
+  // Fresh markup every time: the old listeners go with the old nodes.
+  $("stage").innerHTML = RUNBAR;
+  globalThis.__toWorker.length = 0;
+  globalThis.__store.runState = { running, sent, failed: 0, followupsSent: 0, total, currentIndex: -1 };
+
+  const settings = { maxPerRun };
+  let limitSet = null;
+  const mod = await import(`/src/ui/run.js?${++n}`);
+  await mod.initRun({
+    messages: () => [{ id: "m1", text: "hello" }],
+    leads: () => [{ id: "l1", handle: "someone", status: "pending" }],
+    settings: () => settings,
+    setLimit: (v) => { limitSet = Number(v); settings.maxPerRun = limitSet; },
+    onRunningChanged: () => {},
+  });
+  return {
+    mod,
+    settings,
+    // The click handler reads the run state before it decides anything, so what
+    // Start did is only true a tick later.
+    start: () => { $("runBtn").click(); return new Promise((r) => setTimeout(r)); },
+    asked: () => !$("resumeAsk").hidden,
+    worker: () => globalThis.__toWorker.filter((m) => m.type === "START"),
+    limitSet: () => limitSet,
+  };
+}
+
+// ── the ask itself ────────────────────────────────────────────────────────────
+{
+  const b = await bar({ maxPerRun: 20, sent: 5 });
+  check("a run that ended under its cap says where it stands",
+    $("progress").textContent === "done · 5 of 20 sent", $("progress").textContent);
+
+  await b.start();
+  check("Start asks which of the two it should be", b.asked());
+  check("  and sends nothing until it is answered", b.worker().length === 0,
+    JSON.stringify(b.worker()));
+  check("  it says what the last run did", $("resumeText").textContent === "The last run sent 5 of 20.",
+    $("resumeText").textContent);
+  check("  and what finishing it would cost", $("resumeContinue").textContent === "Finish it — 15 left",
+    $("resumeContinue").textContent);
+  check("  the new-run box starts at the cap in Settings", $("resumeLimit").value === "20",
+    $("resumeLimit").value);
+
+  $("resumeCancel").click();
+  check("  Cancel starts nothing", !b.asked() && b.worker().length === 0, JSON.stringify(b.worker()));
+}
+
+// ── finishing it ──────────────────────────────────────────────────────────────
+{
+  const b = await bar({ maxPerRun: 20, sent: 5 });
+  await b.start();
+  $("resumeContinue").click();
+  check("Finish it continues the last run's tally",
+    b.worker().length === 1 && b.worker()[0].resume === true, JSON.stringify(b.worker()));
+  check("  and the cap in Settings is left alone", b.limitSet() === null && b.settings.maxPerRun === 20);
+  check("  the question goes away", !b.asked());
+}
+
+// ── starting over, with a new cap ─────────────────────────────────────────────
+{
+  const b = await bar({ maxPerRun: 20, sent: 5 });
+  await b.start();
+  $("resumeLimit").value = "30";
+  $("resumeFresh").click();
+  check("Start over begins a run of its own",
+    b.worker().length === 1 && !b.worker()[0].resume, JSON.stringify(b.worker()));
+  check("  with the cap typed into the bar", b.limitSet() === 30, String(b.limitSet()));
+
+  const typed = await bar({ maxPerRun: 20, sent: 5 });
+  await typed.start();
+  $("resumeLimit").value = "7";
+  $("resumeLimit").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  check("  and Enter in that box does the same thing",
+    typed.worker().length === 1 && !typed.worker()[0].resume && typed.limitSet() === 7,
+    JSON.stringify({ sent: typed.worker(), limit: typed.limitSet() }));
+}
+
+// ── when there is nothing to decide ───────────────────────────────────────────
+// Asking then would be a question with one answer, in front of the button
+// somebody presses twenty times a day.
+{
+  const filled = await bar({ maxPerRun: 20, sent: 20 });
+  await filled.start();
+  check("a cap that was spent in full just starts",
+    !filled.asked() && filled.worker().length === 1 && !filled.worker()[0].resume,
+    JSON.stringify(filled.worker()));
+
+  const uncapped = await bar({ maxPerRun: 0, sent: 5 });
+  await uncapped.start();
+  check("no cap, nothing to finish", !uncapped.asked() && uncapped.worker().length === 1,
+    JSON.stringify(uncapped.worker()));
+  check("  and the tally says nothing about a cap either",
+    $("progress").textContent === "done · 5 sent", $("progress").textContent);
+
+  const untouched = await bar({ maxPerRun: 20, sent: 0, total: 0 });
+  await untouched.start();
+  check("a cap nothing was sent against just starts",
+    !untouched.asked() && untouched.worker().length === 1, JSON.stringify(untouched.worker()));
+}
+
+// ── the question cannot outlive its moment ────────────────────────────────────
+{
+  const b = await bar({ maxPerRun: 20, sent: 5 });
+  await b.start();
+  check("the question is up", b.asked());
+  b.mod.updateRunUI({ running: true, sent: 5, failed: 0, total: 4, currentIndex: 0, phase: "sending" });
+  check("  and a run starting takes it down", !b.asked());
+  check("  the progress line counts against the cap",
+    $("progress").textContent === "5 of 20 sent · 1/4", $("progress").textContent);
+}
+
+$("out").textContent = lines.join("\n") + "\n" + (lines.every((l) => l.startsWith("PASS")) ? "ALL PASS" : "SOME FAILED");
+</script>
