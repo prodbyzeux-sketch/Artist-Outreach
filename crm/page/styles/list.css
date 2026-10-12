@@ -1,0 +1,398 @@
+/* The left column: the queue. Rows, their badges, and the four things the
+   column can be instead of a list — loading, nothing captured, nothing in this
+   campaign, nothing matching the filter. */
+
+/* ── Folders ───────────────────────────────────────────────────────────── */
+
+/* Above the filters, because a folder is a scope and not a third filter. The
+   chips scroll sideways rather than wrapping: two rows of folders would push
+   the list down every time one is added. */
+.folders {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 0;
+  flex: none;
+}
+
+.folder-chips {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.folder-chips::-webkit-scrollbar { display: none; }
+
+.folder {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding-right: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.folder-pick {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.folder-pick:hover { color: var(--text); }
+.folder-pick:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -1px; }
+.folder-pick[aria-pressed="true"] { background: var(--elevated); color: var(--text); }
+
+.folder-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.folder-pick[aria-pressed="true"] .folder-count { color: var(--text-2); }
+
+/* Always there rather than on hover, like the × on a tag: a control that
+   appears under the pointer is one that moves the chips as you reach for it. */
+.folder-drop {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.folder-drop:hover { color: var(--text); background: var(--elevated); }
+.folder-drop:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+
+/* Dashed, so it reads as a place to make one rather than a folder called "+". */
+.folder-add {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-md);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.folder-add:hover { color: var(--text); border-color: var(--border-focus); }
+.folder-add:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+
+.folder-name { flex: 1; min-width: 90px; min-height: 28px; padding: 4px 8px; }
+
+/* ── The bulk bar ──────────────────────────────────────────────────────── */
+
+/* Only while something is picked, so it can take the room it needs — none of
+   this is furniture for the rest of the day. Two lines: what is selected and
+   the way out of it, then what can be done to the lot. */
+.bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel2);
+  flex: none;
+}
+
+.bulk-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bulk-count {
+  margin-right: auto;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wraps rather than squeezing: a select narrow enough to show "Move t…" is a
+   control you have to open to find out what it is. */
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-bulk { flex: 1; min-width: 96px; min-height: 28px; padding: 4px 6px; }
+
+.bulk-link {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bulk-link:hover { color: var(--text); }
+.bulk-link:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+/* ── Conversation list ─────────────────────────────────────────────────── */
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.row-wrap { position: relative; }
+
+/* The tick sits ON the picture: the row is a button and a button inside one is
+   not a thing, so it is a sibling laid over it. Invisible until the pointer or
+   the keyboard arrives — and inert while invisible, or the picture would be a
+   click target that picks a row nobody meant to pick. */
+.pick {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  left: 29px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-focus);
+  border-radius: 50%;
+  background: var(--elevated);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pick::before { content: "✓"; }
+
+.row-wrap:hover .pick,
+.pick:focus-visible,
+.row-wrap[data-picked="true"] .pick {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Picked and open are different things and have to look it: open keeps the bar
+   down its edge, picked is the tick plus a lift off the panel. The lift is
+   capped at .04 — measured: at .06 the ground comes out lighter than
+   `--elevated` and drops `--muted` (the time, the "You:") to 4.36. */
+.row-wrap[data-picked="true"] .row { background: rgba(255, 255, 255, 0.04); }
+
+.row-wrap[data-picked="true"] .pick {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover { background: var(--panel2); }
+.row:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+
+/* Where you are, marked in the one accent this product has. A bar rather than
+   a brighter fill: it survives being next to a hovered row. */
+.row[aria-selected="true"] {
+  background: var(--elevated);
+  box-shadow: inset 2px 0 0 var(--text);
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-transform: uppercase;
+}
+
+.row-main { flex: 1; min-width: 0; }
+
+.row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* The name gives way to the badges, but never below a readable stub: "Drz…" is
+   a row you cannot recognise, which is worse than a badge that wraps off. */
+.row-name {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  min-width: 7ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-time {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  flex: none;
+}
+
+.row-preview {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Whose the last word was. Dimmer than the words themselves — it is a label on
+   the line, not part of it. */
+.row-me { color: var(--muted); }
+
+/* Only threads the operator has actually staged carry this. */
+.row-stage {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.row-stage[data-stage="won"] { color: var(--text); border-color: var(--border-strong); }
+
+/* A promise that has come due. Filled rather than outlined: it is the one thing
+   on the row asking to be acted on today, and an outline would read as another
+   label among the labels. */
+.row-due {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--elevated);
+  border: 1px solid var(--border-strong);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* The one accent in the product: an unread conversation. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  flex: none;
+}
+
+.dot-placeholder { width: 7px; flex: none; }
+
+/* ── Empty / placeholder / skeleton ────────────────────────────────────── */
+
+.empty, .placeholder {
+  padding: 24px 16px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* Takes the height it is standing in, which centres the sentence and — in the
+   conversation column — puts the reply box at the foot of the panel instead of
+   leaving it stranded under one line of grey text. */
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.placeholder p { margin: 0; max-width: 34ch; color: var(--muted); }
+
+.empty-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.empty-hint { margin: 0 0 16px; }
+
+.skeleton { padding: 12px; }
+
+.sk-row {
+  height: 46px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--panel2) 25%, var(--elevated) 37%, var(--panel2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-row { animation: none; }
+  .caret { transition: none; }
+}

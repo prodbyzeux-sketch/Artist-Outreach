@@ -1,0 +1,302 @@
+/* Everything around the three columns and the columns themselves: the top bar,
+   the error band, the campaign panel, and the panel/gap layout. */
+
+/* ── Top bar: on the canvas, not a panel of its own ────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 16px;
+  flex: none;
+}
+
+.wordmark {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.wordmark-dim {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.account {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Error band ────────────────────────────────────────────────────────── */
+
+.band {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 8px 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(225, 88, 88, 0.35);
+  border-radius: var(--radius);
+  background: rgba(225, 88, 88, 0.10);
+  flex: none;
+}
+
+.band-text { font-size: var(--fs-sm); color: var(--danger); }
+.band .btn { margin-left: auto; }
+
+/* ── Campaign panel ────────────────────────────────────────────────────── */
+
+.stats {
+  margin: 0 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+  flex: none;
+}
+
+.stats-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stats-toggle:hover { background: var(--panel2); }
+.stats-toggle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+
+.caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid var(--text-2);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 120ms ease;
+}
+
+.stats-toggle[aria-expanded="true"] .caret { transform: rotate(90deg); }
+
+.stats-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stats-line {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Five measurements read as a row of five, not as five things scattered across
+   a 1280px band: at 1fr each they drifted a screen apart and stopped being
+   comparable. Fixed columns, left-aligned, and the row ends where the numbers
+   end. */
+.stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  margin: 0;
+}
+
+.stat { min-width: 0; }
+
+.stat-label {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  margin: 2px 0 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-note {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.funnel { margin-top: 16px; }
+
+/* Stages nobody is in take no width: six equal slivers would say the campaign
+   is spread evenly when it is not. Capped, because a 6px line drawn the whole
+   width of the window reads as a rule between sections, not as a measurement. */
+.funnel-bar {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  max-width: 520px;
+  margin-bottom: 10px;
+}
+
+.funnel-seg { border-radius: 3px; }
+
+.funnel-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.funnel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.funnel-item-empty { color: var(--muted); }
+
+.funnel-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.funnel-count { font-variant-numeric: tabular-nums; color: var(--text); }
+.funnel-item-empty .funnel-count { color: var(--muted); }
+
+/* The funnel read as one gradient: dark at the head, white at Won, and Lost
+   darker than the start — the only place a stage is worth a colour. */
+.funnel-seg[data-stage="new"], .funnel-swatch[data-stage="new"] { background: #3A3A3A; }
+.funnel-seg[data-stage="talking"], .funnel-swatch[data-stage="talking"] { background: #545454; }
+.funnel-seg[data-stage="pitched"], .funnel-swatch[data-stage="pitched"] { background: #6E6E6E; }
+.funnel-seg[data-stage="offer"], .funnel-swatch[data-stage="offer"] { background: #909090; }
+.funnel-seg[data-stage="won"], .funnel-swatch[data-stage="won"] { background: var(--text); }
+.funnel-seg[data-stage="lost"], .funnel-swatch[data-stage="lost"] { background: #262626; }
+
+/* ── Three panels ──────────────────────────────────────────────────────── */
+
+.columns {
+  display: flex;
+  gap: 8px;
+  padding: 0 8px 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* The scrollable columns are the ones allowed to shrink: without min-width:0
+   a flex child refuses to go below its content and pushes its neighbour out. */
+/* `0 1 <width>` rather than `none`: in a narrow window the side columns give way
+   instead of pushing the conversation off the screen. */
+/* The queue is what gets read, so it gets the room: 300px cut names to "Drz…"
+   the moment a row carried a stage and a due date.
+   The conversation takes the slack in a wide window and gives up the least in a
+   narrow one. With a basis of `auto` it was sized by its own content, so an
+   empty column shrank hardest and the messages ended up in the narrowest of the
+   three panels. */
+.col-list { flex: 0 2 340px; min-width: 0; }
+.col-thread { flex: 1 1 380px; min-width: 0; }
+.col-crm { flex: 0 2 296px; min-width: 0; }
+
+.col-head {
+  height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Campaign or everything. The list is one or the other, so it is one control
+   with two sides rather than a checkbox nobody can name the off state of. */
+.modes {
+  display: flex;
+  gap: 2px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  flex: none;
+}
+
+.mode {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.mode:hover { color: var(--text); }
+.mode:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+.mode[aria-pressed="true"] { background: var(--elevated); color: var(--text); }
+
+
+/* Inside the Artist Outreach web app (platform/embed.js): the app already
+   shows the brand, so the wordmark goes. */
+.ao-embedded .wordmark { display: none; }

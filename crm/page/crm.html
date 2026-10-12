@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Inbox · Artist Outreach</title>
+  <script src="../../platform/embed.js"></script>
+  <!-- Order matters: tokens define the variables the rest read, and controls
+       define the primitives the columns restyle. -->
+  <link rel="stylesheet" href="styles/tokens.css">
+  <link rel="stylesheet" href="styles/controls.css">
+  <link rel="stylesheet" href="styles/shell.css">
+  <link rel="stylesheet" href="styles/list.css">
+  <link rel="stylesheet" href="styles/thread.css">
+  <link rel="stylesheet" href="styles/card.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="wordmark">Artist Outreach<span class="wordmark-dim">Inbox</span></span>
+    <span class="account" id="account"></span>
+    <div class="topbar-right">
+      <button class="chip" id="linked" type="button" title="Linked Instagram tab">Instagram tab</button>
+      <span class="chip chip-static" id="bridge" hidden></span>
+      <span class="sync" id="sync"></span>
+      <button class="btn btn-quiet" id="backfill" type="button" title="Read the whole inbox, page by page">Load all</button>
+      <button class="btn" id="refresh" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <div class="band" id="band" hidden>
+    <span class="band-text" id="band-text"></span>
+    <button class="btn btn-quiet" id="band-action" type="button">Try again</button>
+  </div>
+
+  <section class="stats" id="stats" aria-label="Campaign" hidden>
+    <button class="stats-toggle" id="stats-toggle" type="button" aria-expanded="false" aria-controls="stats-body">
+      <span class="caret" aria-hidden="true"></span>
+      <span class="stats-name" id="stats-name"></span>
+      <span class="stats-line" id="stats-line"></span>
+    </button>
+    <div class="stats-body" id="stats-body" hidden>
+      <dl class="stats-grid" id="stats-grid"></dl>
+      <div class="funnel" id="funnel"></div>
+    </div>
+  </section>
+
+  <main class="columns">
+    <section class="col col-list" aria-label="Conversations">
+      <div class="col-head">
+        <div class="modes" id="modes" role="group" aria-label="Which conversations to show" hidden>
+          <button class="mode" id="mode-campaign" type="button" data-mode="campaign" aria-pressed="false">Campaign</button>
+          <button class="mode" id="mode-all" type="button" data-mode="all" aria-pressed="true">All</button>
+        </div>
+        <button class="due-toggle" id="due-toggle" type="button" aria-pressed="false" hidden
+                title="Only the conversations you said you would come back to today or earlier"></button>
+        <span class="col-count" id="list-count"></span>
+      </div>
+
+      <!-- Where a conversation lives, above the filters that narrow it: a folder
+           is a scope like Campaign/All, not a third filter. -->
+      <div class="folders" id="folders" hidden>
+        <div class="folder-chips" id="folder-chips"></div>
+        <button class="folder-add" id="folder-add" type="button"
+                title="New folder — anything selected goes straight into it" aria-label="New folder">+</button>
+        <input class="input folder-name" id="folder-name" type="text" maxlength="24" autocomplete="off"
+               placeholder="Folder name — Enter" aria-label="Name for the new folder" hidden>
+      </div>
+
+      <div class="filters">
+        <input class="input input-search" id="search" type="search" autocomplete="off"
+               placeholder="Search" aria-label="Search by name, message, note and tags">
+        <select class="input input-stage" id="stage-filter" aria-label="Filter by stage"></select>
+      </div>
+
+      <!-- Only while something is picked. Shift-click takes a run, ⌘-click takes
+           one; the tick over the picture is the way in without a keyboard. -->
+      <div class="bulk" id="bulk" hidden>
+        <div class="bulk-top">
+          <span class="bulk-count" id="bulk-count"></span>
+          <button class="bulk-link" id="bulk-all" type="button">Select all</button>
+          <button class="bulk-link" id="bulk-clear" type="button">Clear</button>
+        </div>
+        <div class="bulk-actions">
+          <select class="input input-bulk" id="bulk-folder"
+                  aria-label="Move the selected conversations to a folder"></select>
+          <select class="input input-bulk" id="bulk-stage"
+                  aria-label="Set the stage on the selected conversations"></select>
+          <button class="bulk-link" id="bulk-read" type="button">Mark read</button>
+        </div>
+      </div>
+
+      <div class="skeleton" id="skeleton">
+        <div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div>
+        <div class="sk-row"></div><div class="sk-row"></div><div class="sk-row"></div>
+      </div>
+
+      <div class="empty" id="empty" hidden>
+        <p class="empty-title">No conversations yet</p>
+        <p class="empty-hint">The extension collects your Instagram Direct threads. Press below — we will open the inbox and pick them up.</p>
+        <button class="btn" id="empty-action" type="button">Open Instagram and capture</button>
+      </div>
+
+      <div class="empty" id="no-match" hidden>
+        <p class="empty-title" id="no-match-title">Nothing found</p>
+        <p class="empty-hint" id="no-match-hint">No conversation matches the filter.</p>
+        <button class="btn" id="reset-filters" type="button">Clear filter</button>
+      </div>
+
+      <ul class="list" id="list" hidden></ul>
+    </section>
+
+    <section class="col col-thread" aria-label="Conversation">
+      <!-- Who this is lives here, over the words they said — the card next door
+           is the controls and nothing else. -->
+      <header class="lead" id="lead" hidden>
+        <div class="lead-avatar" id="lead-avatar"></div>
+        <div class="lead-id">
+          <div class="lead-name" id="lead-name"></div>
+          <div class="lead-meta">
+            <a class="lead-handle" id="lead-handle" target="_blank" rel="noreferrer noopener"></a>
+            <span class="lead-summary" id="lead-summary"></span>
+          </div>
+        </div>
+        <span class="lead-outreach" id="lead-outreach" hidden></span>
+      </header>
+
+      <div class="placeholder" id="thread-placeholder">
+        <p>Pick a conversation on the left.</p>
+      </div>
+      <ul class="thread" id="thread" hidden></ul>
+
+      <form class="compose" id="compose" hidden>
+        <textarea id="compose-text" rows="1" placeholder="Reply — Enter sends"
+                  title="Enter sends, Shift+Enter breaks the line"
+                  aria-label="Reply — Enter sends, Shift+Enter breaks the line"></textarea>
+        <button class="btn" id="compose-send" type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="col col-crm" aria-label="Lead card">
+      <div class="placeholder" id="card-placeholder">
+        <p>Pick a conversation — its stage and note live here.</p>
+      </div>
+
+      <div class="card" id="card" hidden>
+        <div class="field">
+          <span class="field-label">Stage</span>
+          <!-- The pipeline is ordered, so it is drawn as one track and not as
+               six chips that wrap wherever the column ends. Won and Lost are
+               not further along it — they are where it stops. -->
+          <div class="track" id="stages" role="group" aria-label="Funnel stage"></div>
+          <div class="outcomes" id="outcomes" role="group" aria-label="How it ended"></div>
+          <span class="field-note" id="stage-age" hidden></span>
+        </div>
+
+        <!-- One lead's folder. The strip on the left moves a whole selection;
+             this is the single one you have open, and it is absent until there
+             is a folder to put it in. -->
+        <div class="field" id="folder-field" hidden>
+          <span class="field-label">Folder</span>
+          <select class="input" id="folder-of" aria-label="Which folder this conversation is in"></select>
+        </div>
+
+        <div class="field">
+          <span class="field-label">Next step</span>
+          <!-- Ahead of the calendar: almost every follow-up is one of these
+               three, and the date field is the exception that has to be there. -->
+          <div class="presets" id="follow-up-presets" role="group" aria-label="Come back in">
+            <button class="preset" type="button" data-days="1">Tomorrow</button>
+            <button class="preset" type="button" data-days="3">In 3 days</button>
+            <button class="preset" type="button" data-days="7">Next week</button>
+          </div>
+          <div class="next-step">
+            <input class="input input-date" id="follow-up" type="date" aria-label="Come back to this on">
+            <button class="btn-quiet" id="follow-up-clear" type="button" hidden
+                    title="No date — this conversation needs nothing from you">Clear</button>
+          </div>
+          <span class="field-note" id="follow-up-note" hidden></span>
+        </div>
+
+        <label class="field field-grow">
+          <span class="field-label">Note</span>
+          <textarea class="input note" id="note"
+                    placeholder="Price, what was agreed, when to come back"></textarea>
+        </label>
+
+        <div class="field">
+          <span class="field-label">Tags</span>
+          <div class="tags" id="tags"></div>
+          <input class="input" id="tag-input" type="text" autocomplete="off"
+                 placeholder="Add a tag" title="Enter adds it; commas add several at once"
+                 aria-label="Add a tag — Enter adds it, commas add several at once">
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="crm.js" type="module"></script>
+</body>
+</html>

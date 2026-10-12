@@ -1,0 +1,234 @@
+/* The right column: the operator’s own columns over Instagram data — stage,
+   next step, note, tags. No identity here; that lives on the thread header. */
+
+/* ── Lead card ─────────────────────────────────────────────────────────── */
+
+/* Controls only — who this is belongs to the column that shows what they said. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The note takes what the fixed fields leave, up to a point: given the whole
+   column on a tall window it became a black rectangle half the panel high,
+   which is not what the note is worth. */
+.field-grow { flex: 1 1 auto; min-height: 148px; max-height: 232px; }
+
+/* --text-2, not --muted: at 10px uppercase these labels are the only thing
+   naming the fields. */
+.field-label {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* One track, in order, on one line: six chips wrapping 4-then-2 said the funnel
+   went New→Talking→Pitched→Offer and then started again at Won. */
+.track {
+  display: flex;
+  gap: 2px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+/* Same size as the two buttons under it: they are one control read top to
+   bottom, and a step set a point smaller made the track look like a caption
+   for Won and Lost rather than the thing they end. */
+.step {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.step:hover { color: var(--text); }
+.step:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -1px; }
+/* Ground already covered: with only the current step marked, the control read
+   as four buttons of which one was on, and the funnel's direction was lost.
+   Where you are is the white one — the covered ground stays dim. */
+.step[data-passed="true"] { background: rgba(255, 255, 255, 0.09); color: var(--muted); }
+.step[aria-pressed="true"] { background: rgba(255, 255, 255, 0.16); color: var(--text); font-weight: 500; }
+
+/* Two ways out of the funnel, not two more places along it. Sized to their
+   words: stretched across the column they outweighed the whole track above,
+   and Lost is not the biggest button on a lead's card. */
+.outcomes {
+  display: flex;
+  gap: 6px;
+}
+
+.outcome {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.outcome:hover { border-color: var(--border-strong); color: var(--text); }
+.outcome:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+.outcome[aria-pressed="true"] {
+  background: var(--elevated);
+  border-color: var(--border-focus);
+  color: var(--text);
+}
+
+.note { flex: 1; min-height: 0; resize: none; }
+
+/* ── Next step ─────────────────────────────────────────────────────────── */
+
+/* Under a field, not beside it: the fact the field just produced — how many days
+   a stage has held, when a follow-up falls. Readable rather than fine print:
+   "in 3 days" is the answer, and the date box above it is only how you got it. */
+.field-note {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* Due is the only state here worth a colour, and it gets the plain text one:
+   this is a reminder the operator set, not a fault. */
+.field-note[data-due="true"] { color: var(--text); }
+
+.next-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Below the presets and quieter than them: `08/08/2026` in Chrome's own styling
+   was the widest, brightest thing in the column and the least-used control in
+   it. Nearly every follow-up is one of the three buttons above. */
+.input-date {
+  flex: none;
+  min-height: 28px;
+  padding: 4px 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/* Chrome's own picker glyph is near-black on a dark field. */
+.input-date::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.5; cursor: pointer; }
+.input-date::-webkit-calendar-picker-indicator:hover { opacity: 0.9; }
+
+.presets {
+  display: flex;
+  gap: 4px;
+}
+
+.preset {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.preset:hover { border-color: var(--border-strong); color: var(--text); }
+.preset:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+/* A way out that does not compete with the ways in. */
+.btn-quiet {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-quiet:hover { color: var(--text); }
+.btn-quiet:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/* The way out of a tag lives on the tag itself — a button, so it is reachable
+   from the keyboard as well as the mouse. */
+.tag-drop {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tag-drop:hover { color: var(--text); background: var(--elevated); }
+.tag-drop:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+

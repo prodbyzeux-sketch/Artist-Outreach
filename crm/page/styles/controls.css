@@ -1,0 +1,148 @@
+/* The controls every panel reuses: buttons, the topbar chips, text inputs.
+   Nothing here knows which column it is standing in.
+
+   Three heights and nothing else, or a row of controls reads as a row of
+   accidents:
+
+     32  what you type into, and the one button per panel that is the point
+     28  every other control — chips, toggles, steps, presets, small selects
+     24  a control nested inside one of those (a segment, a folder's name)
+     20  the × that lives on a chip
+
+   A container adds its own border and padding on top of the nested height, so
+   `.modes` and `.track` come out at 28 like everything beside them. */
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--elevated);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) { border-color: var(--border-focus); }
+.btn:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.btn:disabled { color: var(--muted); cursor: default; }
+.btn-quiet { background: transparent; }
+
+/* ── Chips ─────────────────────────────────────────────────────────────── */
+
+/* Status, not action. Outlined they read as three buttons next to Refresh, which
+   is the only button up here — so the outline waits for the pointer. */
+.chip {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.chip[data-linked="true"] { color: var(--text-2); }
+.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+/* The bridge chip only reports; there is nothing to click. It is absent, not
+   greyed out, when the daemon isn't running — a bridge nobody started is not a
+   state worth a slot in the topbar. */
+.chip-static { cursor: default; }
+.chip-static:hover { border-color: transparent; color: var(--muted); }
+
+.chip[data-state="live"] { color: var(--text-2); }
+/* White, like the unread dot: something is waiting for you. Not red — nothing
+   is broken, and red is for errors only. */
+.chip[data-state="stuck"] { color: var(--text); border-color: var(--border-strong); }
+
+/* ── Inputs ────────────────────────────────────────────────────────────── */
+
+/* Sunk into the panel rather than raised off it: an inset field reads as
+   somewhere to put something, and the darker ground carries placeholder grey at
+   5:1 where --elevated could not. */
+/* `font: var(--fs-sm)/1.4 inherit` used to stand here and did nothing: the font
+   shorthand's last value has to be a family, `inherit` is not one, and the whole
+   declaration was dropped — every field has been rendering at the body's 13px.
+   Spelled out, at the size it has actually been. */
+.input {
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.input::placeholder { color: var(--muted); }
+.input:hover { border-color: var(--border-strong); }
+.input:focus { outline: none; border-color: var(--border-focus); }
+
+.filters {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.input-search { flex: 1; }
+/* Bounded, or the stage names push the search box out of a narrow column. */
+.input-stage { flex: none; max-width: 116px; }
+
+/* In the column head rather than among the filters: it is a view of the list,
+   like Campaign/All, and a third control in that row squeezed the search box to
+   nothing on a narrow window. Shown only while something is due — see
+   renderDueToggle. */
+.due-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  flex: none;
+  margin-left: auto;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The count keeps the right edge; with the toggle present it follows it. */
+.due-toggle + .col-count { margin-left: 0; }
+
+.due-toggle:hover { color: var(--text); }
+.due-toggle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 1px; }
+.due-toggle[aria-pressed="true"] { background: var(--elevated); color: var(--text); }
+

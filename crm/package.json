@@ -1,0 +1,10 @@
+{
+  "name": "artist-outreach-crm",
+  "private": true,
+  "type": "module",
+  "description": "Not a build config — Chrome loads this folder as-is. Present only so `node --test` reads lib/*.js as ES modules.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "bridge": "node bridge/siluet-bridge.mjs"
+  }
+}

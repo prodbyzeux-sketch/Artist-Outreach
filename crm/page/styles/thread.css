@@ -1,0 +1,179 @@
+/* The middle column: who the conversation is with, what was said, and the box
+   you say the next thing in. */
+
+/* ── The person, over the conversation ─────────────────────────────────── */
+
+/* 12px, like the messages and the reply box below it: at 14 the avatar started
+   two pixels right of the first bubble, down the whole height of the panel. */
+.lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  padding: 10px 12px;
+  background: var(--panel2);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.lead-avatar { flex: none; display: flex; }
+.lead-avatar .avatar { width: 36px; height: 36px; }
+
+.lead-id { min-width: 0; }
+
+.lead-name {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lead-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The padding is the hit area and the negative margin gives the space back: an
+   11px line is a 16px-tall target, and this one opens their Instagram. */
+.lead-handle {
+  flex: none;
+  padding: 4px 0;
+  margin: -4px 0;
+  /* Stated, not inherited: 11px against the body's 1.45 came to 15.95 and put
+     the link half a pixel above the line it shares with the summary. */
+  line-height: 16px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.lead-handle:hover { color: var(--text); text-decoration: underline; }
+.lead-handle:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+
+.lead-summary {
+  line-height: 16px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the send run already did to this lead. On the header rather than buried
+   in the card: it changes what you write next, and what you write next is the
+   thing this column is for. */
+.lead-outreach {
+  flex: none;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  /* Half the height, the same way the topbar chips are round — one pill idiom,
+     not `13px` in one place and `999px` in another. */
+  border-radius: 11px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.lead-outreach[data-status="failed"] {
+  color: var(--danger);
+  border-color: rgba(225, 88, 88, 0.35);
+}
+
+/* Below this the middle column is barely 320px and the summary arrived as
+   "4 msg…" — a truncation that says nothing. It goes before the outreach line
+   does: how many messages there are changes nothing, and what the send run
+   already did to this person changes what you write next. */
+@media (max-width: 1100px) {
+  .lead-summary { display: none; }
+}
+
+/* ── Thread column ─────────────────────────────────────────────────────── */
+
+.thread {
+  margin: 0;
+  padding: 16px 12px;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A share of the column until that share stops being a readable line: on a wide
+   screen 74% of this panel ran a sentence past 90 characters, and the eye loses
+   the start of the next line somewhere around 75. */
+.bubble {
+  max-width: min(74%, 62ch);
+  padding: 7px 11px;
+  border-radius: 12px;
+  font-size: var(--fs-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The square corner points at whoever said it. */
+.bubble.in {
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  background: var(--elevated);
+}
+
+.bubble.out {
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.bubble-time {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.bubble.pending { opacity: 0.5; }
+
+/* An attachment, not words: it is a marker, and it should not look like speech. */
+.bubble.bubble-media { color: var(--muted); }
+
+.bubble.failed {
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+/* ── Compose ───────────────────────────────────────────────────────────── */
+
+.compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel2);
+  flex: none;
+}
+
+.compose textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 120px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-md)/1.4 inherit;
+  font-family: inherit;
+  resize: none;
+}
+
+.compose textarea::placeholder { color: var(--muted); }
+.compose textarea:focus { outline: none; border-color: var(--border-focus); }
+
